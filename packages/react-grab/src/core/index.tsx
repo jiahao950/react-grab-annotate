@@ -109,7 +109,9 @@ import type {
   ToolbarState,
   DropdownAnchor,
   ElementLabelVariant,
+  AnnotateOptions,
 } from "../types.js";
+import { createAnnotateController, type AnnotateController } from "../annotate/controller.js";
 import { createEditModeController, type EditModeOverrides } from "./edit-mode.js";
 import { createPluginRegistry } from "./plugin-registry.js";
 import { createLabelController } from "./label-controller.js";
@@ -212,11 +214,28 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
   logIntro(initialOptions.telemetry !== false);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- omit init-only options that aren't part of SettableOptions
-  const { enabled: _enabled, telemetry: _telemetry, ...settableOptions } = initialOptions;
+  const { enabled: _enabled, telemetry: _telemetry, annotate, ...settableOptions } = initialOptions;
+
+  const annotateOptions: AnnotateOptions | null = annotate
+    ? typeof annotate === "object"
+      ? annotate
+      : {}
+    : null;
+
+  // Annotation mode owns activation entirely (the "标注" button and the
+  // controller's own Cmd/Ctrl+. toggle), so react-grab's built-in activation
+  // key is disabled to avoid double-handling and its toggle-off quirks.
+  if (annotateOptions) {
+    settableOptions.activationKey = () => false;
+  }
 
   return createRoot((dispose) => {
     let disposed = false;
     let disposeRenderer: (() => void) | undefined;
+    let annotateController: AnnotateController | null = null;
+    // Anchor point (client coords) of the most recent annotation gesture: the
+    // click point for a click, the pointer release point for a box selection.
+    let annotateAnchorPoint: { x: number; y: number; mode: "click" | "drag" } | null = null;
 
     const pluginRegistry = createPluginRegistry(settableOptions);
 
@@ -928,7 +947,10 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       if (frozenElements.length === 0) return [];
 
       const dragRect = store.frozenDragRect;
-      if (dragRect && frozenElements.length > 1) {
+      // In annotation mode a box selection always highlights the drawn
+      // rectangle (like a screenshot crop) rather than snapping to element
+      // bounds; outside annotation mode this only applies to multi-selection.
+      if (dragRect && (frozenElements.length > 1 || annotateOptions !== null)) {
         return [createBoundsFromDragRect(dragRect)];
       }
 
@@ -1421,6 +1443,40 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       const element = store.frozenElement || targetElement();
       const prompt = isPromptMode() ? store.inputText.trim() : "";
 
+      // In annotation mode the submitted comment becomes a persisted annotation
+      // (screenshot + source + comment) rather than a clipboard copy, and the
+      // tool stays active so the user can keep annotating.
+      if (annotateController) {
+        const frozenDragRect = store.frozenDragRect;
+        const region = frozenDragRect
+          ? {
+              pageX: frozenDragRect.pageX,
+              pageY: frozenDragRect.pageY,
+              width: frozenDragRect.width,
+              height: frozenDragRect.height,
+            }
+          : null;
+        const anchorPoint = annotateAnchorPoint;
+        annotateAnchorPoint = null;
+        actions.exitPromptMode();
+        actions.clearInputText();
+        if (element) {
+          const elements = frozenElements.length > 0 ? frozenElements : [element];
+          annotateController.handleCommentSubmit({
+            element,
+            elements,
+            comment: prompt,
+            region,
+            anchorPoint,
+          });
+        }
+        actions.unfreeze();
+        // Re-arm comment mode so the next selection opens the comment box again
+        // instead of falling back to the default copy action.
+        actions.setPendingCommentMode(true);
+        return;
+      }
+
       if (!element) {
         deactivateRenderer();
         return;
@@ -1863,6 +1919,16 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       actions.setLastGrabbed(firstElement);
 
       if (store.pendingCommentMode) {
+        // Annotation box-select targets the deepest element under the drawn
+        // region (not the bubbled-up parent that drag selection would pick),
+        // while the screenshot/bounds use the region itself.
+        if (annotateController) {
+          const dragCenterX = dragSelectionRect.x + dragSelectionRect.width / 2;
+          const dragCenterY = dragSelectionRect.y + dragSelectionRect.height / 2;
+          const deepestElement = getElementAtPosition(dragCenterX, dragCenterY) ?? firstElement;
+          enterCommentModeForElement(deepestElement, dragCenterX, dragCenterY);
+          return;
+        }
         enterCommentModeForElement(firstElement, center.x, center.y);
         return;
       }
@@ -2035,6 +2101,14 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       stopSpaceDragRepositioning();
       autoScroller.stop();
       document.body.style.userSelect = "";
+
+      if (annotateController) {
+        annotateAnchorPoint = {
+          x: clientX,
+          y: clientY,
+          mode: dragSelectionRect ? "drag" : "click",
+        };
+      }
 
       if (dragSelectionRect) {
         handleDragSelection(dragSelectionRect, hasModifierKeyHeld, isShiftHeld);
@@ -2451,6 +2525,40 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
           return;
         }
 
+        // Annotation-mode keyboard shortcuts, handled early so they pre-empt
+        // react-grab's copy / activation handling and behave consistently
+        // regardless of focus:
+        //   Cmd/Ctrl+Enter  enter annotation mode (when inactive)
+        //   Cmd/Ctrl+C      submit the session (only while active)
+        // Exiting has no shortcut by design (only the Cancel button). Cmd/Ctrl+C
+        // is ignored when the event comes from a text field so native copy and
+        // comment editing still work.
+        if (annotateController && !event.repeat && (event.metaKey || event.ctrlKey)) {
+          const annotateActive = isActivated();
+
+          if (isEnterCode(event.code) && !annotateActive) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            annotateController.enter();
+            return;
+          }
+
+          if (event.code === "KeyC" || event.key === "c" || event.key === "C") {
+            const isFromTextField = event.composedPath().some((node) => {
+              if (!(node instanceof HTMLElement)) return false;
+              return (
+                node.tagName === "TEXTAREA" || node.tagName === "INPUT" || node.isContentEditable
+              );
+            });
+            if (annotateActive && !isFromTextField) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              annotateController.submit();
+              return;
+            }
+          }
+        }
+
         const isEnterToActivateInput =
           isEnterCode(event.code) && isHoldingKeys() && !isPromptMode();
 
@@ -2480,8 +2588,21 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
 
           if (event.key === "Escape") {
             if (isPromptMode()) {
+              // Annotation mode: Escape only closes the comment popup; it must
+              // not exit annotation mode (only the Cancel button does that).
+              // Stop the event so the comment textarea's own Escape handler
+              // (onConfirmDismiss -> deactivate) does not also fire.
+              if (annotateController) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                actions.exitPromptMode();
+                actions.clearInputText();
+                actions.unfreeze();
+                actions.setPendingCommentMode(true);
+                return;
+              }
               handleInputCancel();
-            } else if (store.wasActivatedByToggle) {
+            } else if (store.wasActivatedByToggle && !annotateController) {
               deactivateRenderer();
             }
           }
@@ -2503,7 +2624,7 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
         }
 
         if (event.key === "Escape") {
-          if (isHoldingKeys() || store.wasActivatedByToggle) {
+          if ((isHoldingKeys() || store.wasActivatedByToggle) && !annotateController) {
             deactivateRenderer();
             return;
           }
@@ -2667,7 +2788,20 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
         if (!event.isPrimary) return;
         const isTouchPointer = event.pointerType === "touch";
         actions.setTouchMode(isTouchPointer);
-        if (isEventFromOverlay(event, "data-react-grab-ignore-events")) return;
+        if (isEventFromOverlay(event, "data-react-grab-ignore-events")) {
+          // In annotation mode, moving onto our own controls (Cancel/Submit,
+          // marks, cards) must drop the hover highlight rather than leave it
+          // stuck on the last page element behind the control.
+          if (
+            annotateController &&
+            !isPromptMode() &&
+            !isFrozenPhase() &&
+            store.detectedElement !== null
+          ) {
+            actions.setDetectedElement(null);
+          }
+          return;
+        }
         if (isElementDetectionBlocked()) return;
         if (isTouchPointer && !isHoldingKeys() && !isActivated()) return;
         const isActiveState = isTouchPointer ? isHoldingKeys() : isActivated();
@@ -3849,6 +3983,21 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
 
     for (const plugin of builtInPlugins) {
       pluginRegistry.register(plugin, api);
+    }
+
+    if (annotateOptions) {
+      annotateController = createAnnotateController(api, annotateOptions);
+      const controller = annotateController;
+      createEffect(() => {
+        const active = isActivated();
+        controller.notifyActiveChange(active);
+        // In annotation mode every selection should open the comment box rather
+        // than copy, so arm comment mode as soon as the tool becomes active.
+        if (active && !store.pendingCommentMode && !isPromptMode()) {
+          actions.setPendingCommentMode(true);
+        }
+      });
+      onCleanup(() => controller.dispose());
     }
 
     setTimeout(() => {

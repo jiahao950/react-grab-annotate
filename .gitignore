@@ -20,3 +20,5 @@ meta.json
 .claude.expect
 .mcp.json
 !.agents/skills/react-grab
+# react-grab annotation output (annotate-server)
+.react-grab-annotations/

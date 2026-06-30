@@ -133,6 +133,19 @@ export interface AgentContext<T = unknown> {
 
 export type ActivationMode = "toggle" | "hold";
 
+export interface AnnotateOptions {
+  /**
+   * Base URL of the local annotate-server that persists annotations to disk.
+   * @default "http://127.0.0.1:5179"
+   */
+  serverUrl?: string;
+  /**
+   * Fixed session id. When omitted a fresh session id is generated each time
+   * the user enters annotation mode.
+   */
+  sessionId?: string;
+}
+
 export type OverlayDismissSource = "keyboard" | "pointer";
 
 export interface ActionContextHooks {
@@ -371,6 +384,14 @@ export interface Options {
    * @default true
    */
   telemetry?: boolean;
+  /**
+   * Enable annotation mode: replaces the default toolbar/copy behavior with a
+   * single "标注" entry button, Figma-style numbered marks, and local-file
+   * persistence (screenshot + source location + comment) via annotate-server.
+   * Pass an object to configure the server URL / session.
+   * @default false
+   */
+  annotate?: boolean | AnnotateOptions;
 }
 
 export interface SettableOptions extends Options {

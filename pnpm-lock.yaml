@@ -320,6 +320,21 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/annotate-server:
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.2
+        version: 25.6.2
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vite-plus:
+        specifier: ^0.1.20
+        version: 0.1.20(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.37.0)(tsx@4.21.0)(typescript@6.0.3)(vite@6.4.1(@types/node@25.6.2)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.37.0)(tsx@4.21.0)(yaml@2.8.4))(yaml@2.8.4)
+
   packages/cli:
     dependencies:
       agent-install:
@@ -368,6 +383,9 @@ importers:
       '@react-grab/cli':
         specifier: workspace:*
         version: link:../cli
+      '@zumer/snapdom':
+        specifier: ^2.12.9
+        version: 2.12.9
       bippy:
         specifier: ^0.5.42
         version: 0.5.42(react@19.2.6)
@@ -3734,41 +3752,51 @@ packages:
     resolution: {integrity: sha512-zlIZH+X2aEfxC5UgnIoYbX0cG3/MpRUsQAGJbrcBbgKp0mhuBFtMJHZ426JC5rb3pv8amo1MmDeARZUQ99U/CQ==}
     cpu: [arm64]
     os: [darwin]
+    deprecated: This package has been replaced by @agentclientprotocol/codex-acp. Please migrate to continue receiving updates.
     hasBin: true
 
   '@zed-industries/codex-acp-darwin-x64@0.10.0':
     resolution: {integrity: sha512-TFMF9YqfWplnYpWRaUauRbtps1ow1S47MVcBv21/Sd55gRMWWYWSogRLDyAcoMC4y9pdI2bYhx33u7jYhJnj5w==}
     cpu: [x64]
     os: [darwin]
+    deprecated: This package has been replaced by @agentclientprotocol/codex-acp. Please migrate to continue receiving updates.
     hasBin: true
 
   '@zed-industries/codex-acp-linux-arm64@0.10.0':
     resolution: {integrity: sha512-tIm0uGKZuirZyqx9KAgIgh6cimVXdh+BMTFyUfH1xnez5Y3B6oFxzup/ZIP34OZ/W59Cnfi4wcIL3No0VV6Kmw==}
     cpu: [arm64]
     os: [linux]
+    deprecated: This package has been replaced by @agentclientprotocol/codex-acp. Please migrate to continue receiving updates.
     hasBin: true
 
   '@zed-industries/codex-acp-linux-x64@0.10.0':
     resolution: {integrity: sha512-oiiN35wsecX1OwesV/KIu72o1OSw+OWFL86vQUUZTdfMXr9eyYFP1uZYLMxIx+tkhlJnm7KHC5L4raDg/MLVtA==}
     cpu: [x64]
     os: [linux]
+    deprecated: This package has been replaced by @agentclientprotocol/codex-acp. Please migrate to continue receiving updates.
     hasBin: true
 
   '@zed-industries/codex-acp-win32-arm64@0.10.0':
     resolution: {integrity: sha512-dfybabjibQQpXUs9TjwLjg+mrj8tGSopVcwkFy8u3XG4hrBZVCri91dtVhm7hs98lZlawxwiiPuj4Pmg+4hHyQ==}
     cpu: [arm64]
     os: [win32]
+    deprecated: This package has been replaced by @agentclientprotocol/codex-acp. Please migrate to continue receiving updates.
     hasBin: true
 
   '@zed-industries/codex-acp-win32-x64@0.10.0':
     resolution: {integrity: sha512-xCm3xsE3lD66DlbaLKBqHahPY1Lhb+rGu2IIq60qUsBGiYcSXtpRjQ1LXI/Sym6iCKrPo+eQP0j6rg7CPh1AGw==}
     cpu: [x64]
     os: [win32]
+    deprecated: This package has been replaced by @agentclientprotocol/codex-acp. Please migrate to continue receiving updates.
     hasBin: true
 
   '@zed-industries/codex-acp@0.10.0':
     resolution: {integrity: sha512-vzwAUSHR7TaJh62JoE+6UD/HVm8fJbmMGsMBBMcHrKBIL7MF8yevlPDWVdoaDaGOsgqVZYRv9KhdT8ari0I4mg==}
+    deprecated: This package has been replaced by @agentclientprotocol/codex-acp. Please migrate to continue receiving updates.
     hasBin: true
+
+  '@zumer/snapdom@2.12.9':
+    resolution: {integrity: sha512-Zufl1vEthT931kcZfmAaRSnucAGIRLGi9N6JI8ZsdyHww5hHHLk4t5LU1DxS5pNAPi1MptPHcGON1pkXEBf5iw==}
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -10916,6 +10944,8 @@ snapshots:
       '@zed-industries/codex-acp-linux-x64': 0.10.0
       '@zed-industries/codex-acp-win32-arm64': 0.10.0
       '@zed-industries/codex-acp-win32-x64': 0.10.0
+
+  '@zumer/snapdom@2.12.9': {}
 
   abort-controller@3.0.0:
     dependencies:

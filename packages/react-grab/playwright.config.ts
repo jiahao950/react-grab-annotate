@@ -57,6 +57,15 @@ const nextWebServer = {
   timeout: 120_000,
 };
 
+// Local annotation persistence server used by annotate.spec.ts.
+const annotateWebServer = {
+  command: "pnpm --filter @react-grab/annotate-server start",
+  url: "http://127.0.0.1:5179/health",
+  reuseExistingServer: !process.env.CI,
+  cwd: path.resolve(__dirname, "../.."),
+  timeout: 60_000,
+};
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -70,5 +79,5 @@ export default defineConfig({
     permissions: ["clipboard-read", "clipboard-write"],
   },
   projects: isPerfRun ? viteProjects : [...viteProjects, nextProject],
-  webServer: isPerfRun ? [viteWebServer] : [viteWebServer, nextWebServer],
+  webServer: isPerfRun ? [viteWebServer] : [viteWebServer, nextWebServer, annotateWebServer],
 });
