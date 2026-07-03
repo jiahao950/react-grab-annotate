@@ -59,7 +59,7 @@ const nextWebServer = {
 
 // Local annotation persistence server used by annotate.spec.ts.
 const annotateWebServer = {
-  command: "pnpm --filter @react-grab/annotate-server start",
+  command: "pnpm --filter react-grab-annotate start",
   url: "http://127.0.0.1:5179/health",
   reuseExistingServer: !process.env.CI,
   cwd: path.resolve(__dirname, "../.."),
