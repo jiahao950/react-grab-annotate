@@ -2582,6 +2582,37 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
           }
         }
 
+        // Annotation mode owns the keyboard while active. react-grab's built-in
+        // keyboard selection (arrow-navigation, bare-Enter "copy from here",
+        // type-to-edit, activation) would otherwise select blocks and yank the
+        // user out of the session. Only the comment popup's own input and a
+        // layered Escape are allowed through; every other key is left to the
+        // live page (so arrow/space/PageDown still scroll).
+        if (annotateController && isActivated()) {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (isPromptMode()) {
+              // Popup open → Escape closes only the popup, staying in the mode.
+              actions.exitPromptMode();
+              actions.clearInputText();
+              actions.unfreeze();
+              actions.setPendingCommentMode(true);
+            } else {
+              // No popup → Escape leaves annotation mode (like Cancel).
+              annotateController.exit();
+            }
+            return;
+          }
+          // The comment textarea handles its own typing / Enter-to-submit.
+          if (isPromptMode() || isEventFromOverlay(event, "data-react-grab-ignore-events")) {
+            return;
+          }
+          // Ignore any other key — no react-grab selection/navigation runs, but
+          // the page keeps native keyboard behavior (scrolling).
+          return;
+        }
+
         const isEnterToActivateInput =
           isEnterCode(event.code) && isHoldingKeys() && !isPromptMode();
 
@@ -2609,21 +2640,10 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
         if (isPromptMode() || isFromOverlay) {
           if (isPromptMode() && !isFromReactGrabInput && tryHandleBareKeyShortcut(event)) return;
 
+          // Annotate mode's Escape (layered popup-close / exit) is handled
+          // earlier, before this block, so only non-annotate paths reach here.
           if (event.key === "Escape") {
             if (isPromptMode()) {
-              // Annotation mode: Escape only closes the comment popup; it must
-              // not exit annotation mode (only the Cancel button does that).
-              // Stop the event so the comment textarea's own Escape handler
-              // (onConfirmDismiss -> deactivate) does not also fire.
-              if (annotateController) {
-                event.preventDefault();
-                event.stopImmediatePropagation();
-                actions.exitPromptMode();
-                actions.clearInputText();
-                actions.unfreeze();
-                actions.setPendingCommentMode(true);
-                return;
-              }
               handleInputCancel();
             } else if (store.wasActivatedByToggle && !annotateController) {
               deactivateRenderer();

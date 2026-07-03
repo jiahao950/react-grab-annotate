@@ -20,8 +20,30 @@ export interface AnnotateController {
   notifyActiveChange: (isActive: boolean) => void;
   enter: () => void;
   submit: () => void;
+  /** Leave annotation mode without submitting (same as the Cancel button). */
+  exit: () => void;
   dispose: () => void;
 }
+
+// Runs work after the browser has had a chance to paint, so a freshly-added
+// mark shows instantly before snapDOM's heavy synchronous work (font embedding
+// + rasterization) starts. Always resolves — even in a backgrounded tab where
+// requestAnimationFrame is throttled — so a later submit never hangs waiting.
+const deferCapture = (work: () => Promise<void>): Promise<void> =>
+  new Promise((resolve) => {
+    let started = false;
+    const run = (): void => {
+      if (started) return;
+      started = true;
+      void work().then(resolve, resolve);
+    };
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => requestAnimationFrame(run));
+      setTimeout(run, 120);
+    } else {
+      setTimeout(run, 0);
+    }
+  });
 
 // Short, path-friendly session id (the folder name in the copied prompt path).
 const createSessionId = (): string =>
@@ -209,9 +231,11 @@ export const createAnnotateController = (
       screenshotDataUrl: null,
     };
 
-    // Render the mark synchronously; fill in the heavy bits afterwards.
+    // Render the mark synchronously so Enter feels instant (optimistic). The
+    // heavy source-resolution + screenshot work is deferred to after paint and
+    // tracked, so only the final submit shows a spinner while it drains.
     store.add(annotation);
-    void track(finalizeAnnotation(id, element, input.region ?? null));
+    void track(deferCapture(() => finalizeAnnotation(id, element, input.region ?? null)));
   };
 
   return {
@@ -226,6 +250,7 @@ export const createAnnotateController = (
     },
     enter: onEnter,
     submit: () => void onSubmit(),
+    exit: onCancel,
     dispose: () => {
       if (toastTimerId !== undefined) clearTimeout(toastTimerId);
       overlay.dispose();
