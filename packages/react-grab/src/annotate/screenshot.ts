@@ -21,9 +21,15 @@ export const captureElementPng = async (element: Element): Promise<string | null
   try {
     // `type` (not `format`) selects the raster output for toBlob — with the
     // wrong key snapDOM returns an SVG blob, which saves as a "corrupt" .png.
+    //
+    // `embedFonts: true` is essential for fidelity: without it snapDOM renders
+    // text in a fallback font, so any app with custom web fonts produces a
+    // screenshot that looks completely different from what's on screen. Icon
+    // fonts embed regardless; this covers the non-icon (body/heading) fonts.
     const blob = await snapdom.toBlob(element, {
       type: "png",
       dpr: getDpr(),
+      embedFonts: true,
       exclude: OVERLAY_EXCLUDE_SELECTORS,
     });
     return await blobToDataUrl(blob);
@@ -78,6 +84,7 @@ export const captureRegionPng = async (region: {
     const dpr = getDpr();
     const sourceCanvas = await snapdom.toCanvas(container, {
       dpr,
+      embedFonts: true,
       exclude: OVERLAY_EXCLUDE_SELECTORS,
     });
     const containerRect = container.getBoundingClientRect();

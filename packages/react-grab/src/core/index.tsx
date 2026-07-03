@@ -112,6 +112,10 @@ import type {
   AnnotateOptions,
 } from "../types.js";
 import { createAnnotateController, type AnnotateController } from "../annotate/controller.js";
+import {
+  installAnnotateInteractionGuard,
+  removeAnnotateInteractionGuard,
+} from "../annotate/interaction-guard.js";
 import { createEditModeController, type EditModeOverrides } from "./edit-mode.js";
 import { createPluginRegistry } from "./plugin-registry.js";
 import { createLabelController } from "./label-controller.js";
@@ -293,6 +297,19 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
 
     createEffect(
       on(isActivated, (activated, previousActivated) => {
+        // Annotate mode keeps the page live and scrollable, so it swaps the
+        // heavy freeze (pointer-events:none + touch-action:none + hover/animation
+        // pins) for a lightweight guard that only blocks page hover/click side
+        // effects. Freezing here would break custom scroll containers and flash
+        // page tooltips on exit. @see annotate/interaction-guard.ts
+        if (annotateOptions) {
+          if (activated && !previousActivated) {
+            installAnnotateInteractionGuard();
+          } else if (!activated && previousActivated) {
+            removeAnnotateInteractionGuard();
+          }
+          return;
+        }
         if (activated && !previousActivated) {
           // Batch all layout reads before any DOM writes. The pseudo-state
           // snapshot (getComputedStyle/elementFromPoint) and getAnimations()
@@ -894,6 +911,8 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
     });
 
     createEffect(() => {
+      // Annotate mode keeps the page live — no animation pinning.
+      if (annotateOptions) return;
       const elements = store.frozenElements;
       const cleanup = freezeAnimations(elements);
       onCleanup(cleanup);
@@ -902,6 +921,10 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
     createEffect(
       on(isActivated, (activated) => {
         if (!activated) return;
+        // Freezing React updates during an annotate session would stall the live
+        // page and, worse, flush a burst of queued updates on exit — which is
+        // what makes page tooltips flash the moment you submit.
+        if (annotateOptions) return;
         if (!pluginRegistry.store.options.freezeReactUpdates) return;
         const unfreezeUpdates = freezeUpdates();
         onCleanup(unfreezeUpdates);

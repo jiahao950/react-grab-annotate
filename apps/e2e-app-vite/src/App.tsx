@@ -641,6 +641,42 @@ const HiddenToggleSection = () => {
   );
 };
 
+// Mirrors a floating-ui / Radix tooltip: hover opens it via React state. During
+// annotation the interaction guard must suppress the hover so it never appears,
+// and — critically — it must never flash on submit/exit (which happened when
+// react-grab froze React updates during the session and flushed them on exit).
+const TooltipSection = () => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <section className="border rounded-lg p-4" data-testid="tooltip-section">
+      <h2 className="text-lg font-bold mb-4">Hover Tooltip (floating-ui style)</h2>
+      <div className="relative inline-block">
+        <button
+          type="button"
+          className="bg-slate-700 text-white px-4 py-2 rounded"
+          data-testid="tooltip-trigger"
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+        >
+          Hover me
+        </button>
+        {open && (
+          <div
+            role="tooltip"
+            className="absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap bg-black text-white text-xs px-2 py-1 rounded shadow-lg z-50"
+            data-testid="tooltip-content"
+          >
+            I am a page tooltip
+          </div>
+        )}
+      </div>
+    </section>
+  );
+};
+
 const usePerfGridConfig = (): { rowCount: number; columnCount: number } | null => {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
@@ -737,6 +773,8 @@ export default function App() {
       <FormSection />
 
       <ScrollableSection />
+
+      <TooltipSection />
 
       <DynamicElements />
 
