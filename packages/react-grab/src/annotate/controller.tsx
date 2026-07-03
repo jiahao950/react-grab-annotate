@@ -51,6 +51,16 @@ export const createAnnotateController = (
   let lastMarkdownPath = "";
   let toastTimerId: ReturnType<typeof setTimeout> | undefined;
 
+  // In-flight screenshot/sync work. Submit must wait for these so it never
+  // persists before a screenshot finishes, and so a late task can't clobber
+  // the submitted markdown.
+  const pendingTasks = new Set<Promise<unknown>>();
+  const track = <T,>(promise: Promise<T>): Promise<T> => {
+    pendingTasks.add(promise);
+    void promise.finally(() => pendingTasks.delete(promise));
+    return promise;
+  };
+
   const showToast = (message: string): void => {
     store.setToast(message);
     if (toastTimerId !== undefined) clearTimeout(toastTimerId);
@@ -89,6 +99,9 @@ export const createAnnotateController = (
     const count = store.count();
     store.setSubmitting(true);
     try {
+      // Wait for every in-flight screenshot/sync to finish (spinner shows
+      // meanwhile), then write the final snapshot.
+      await Promise.allSettled([...pendingTasks]);
       await syncToServer();
       const markdownPath = lastMarkdownPath || "<annotate-server unreachable>";
       store.clear();
@@ -109,13 +122,13 @@ export const createAnnotateController = (
   const onSaveCard = (id: string, comment: string): void => {
     store.patch(id, { comment });
     store.setActiveCard(null);
-    void syncToServer();
+    void track(syncToServer());
   };
 
   const onDeleteCard = (id: string): void => {
     store.remove(id);
     store.setActiveCard(null);
-    void syncToServer();
+    void track(syncToServer());
   };
 
   const overlay = mountAnnotateOverlay(() => (
@@ -198,7 +211,7 @@ export const createAnnotateController = (
 
     // Render the mark synchronously; fill in the heavy bits afterwards.
     store.add(annotation);
-    void finalizeAnnotation(id, element, input.region ?? null);
+    void track(finalizeAnnotation(id, element, input.region ?? null));
   };
 
   return {
