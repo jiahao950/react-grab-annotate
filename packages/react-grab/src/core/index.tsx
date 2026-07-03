@@ -4024,7 +4024,12 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       getDisplayName: getComponentDisplayName,
     };
 
-    for (const plugin of builtInPlugins) {
+    // Annotate mode exposes exactly one control — the comment box. Registering
+    // copy/edit/open would bring their shortcuts (C / S / O), toolbar entries,
+    // and context-menu items, letting the user land in the style-editor panel
+    // or copy/open flows, which don't belong in an annotation session.
+    const pluginsToRegister = annotateOptions ? [commentPlugin] : builtInPlugins;
+    for (const plugin of pluginsToRegister) {
       pluginRegistry.register(plugin, api);
     }
 
