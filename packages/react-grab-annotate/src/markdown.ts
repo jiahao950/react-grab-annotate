@@ -1,12 +1,12 @@
-import type { SessionManifest, StoredAnnotation } from "./types.js";
+import type { AnnotationRecord } from "./types.js";
 
-const formatSourceLocation = (annotation: StoredAnnotation): string => {
+const formatSourceLocation = (annotation: AnnotationRecord): string => {
   if (!annotation.filePath) return "(未知)";
   if (annotation.lineNumber === null) return annotation.filePath;
   return `${annotation.filePath}:${annotation.lineNumber}`;
 };
 
-const renderAnnotation = (annotation: StoredAnnotation): string => {
+const renderAnnotation = (annotation: AnnotationRecord): string => {
   const heading = annotation.componentName || annotation.tagName || "元素";
   const lines: string[] = [];
   lines.push(`## #${annotation.number} — ${heading}`);
@@ -25,28 +25,17 @@ const renderAnnotation = (annotation: StoredAnnotation): string => {
   lines.push("**评论:**");
   lines.push("");
   lines.push(annotation.comment.trim() || "(空)");
-  if (annotation.stackContext.trim()) {
-    lines.push("");
-    lines.push("<details><summary>组件栈</summary>");
-    lines.push("");
-    lines.push("```");
-    lines.push(annotation.stackContext.trim());
-    lines.push("```");
-    lines.push("");
-    lines.push("</details>");
-  }
   return lines.join("\n");
 };
 
-export const renderManifestMarkdown = (manifest: SessionManifest): string => {
-  const sorted = [...manifest.annotations].sort((first, second) => first.number - second.number);
-  const header: string[] = [];
-  header.push(`# 标注会话 \`${manifest.sessionId}\``);
-  header.push("");
-  header.push(
-    `共 ${sorted.length} 条标注。下面每条都包含源码位置、截图与评论，请据此修改项目代码。`,
-  );
-  header.push("");
+export const renderAnnotationsMarkdown = (annotations: AnnotationRecord[]): string => {
+  const sorted = [...annotations].sort((first, second) => first.number - second.number);
+  const header = [
+    "# 标注",
+    "",
+    `共 ${sorted.length} 条标注。每条包含源码位置、截图与评论，请据此修改项目代码。`,
+    "",
+  ];
   const body = sorted.map(renderAnnotation).join("\n\n");
   return `${header.join("\n")}\n${body}\n`;
 };

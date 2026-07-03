@@ -1,10 +1,3 @@
-export interface AnnotateRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 export type AnnotateAnchorMode = "click" | "drag";
 
 export interface AnnotateAnchor {
@@ -23,17 +16,23 @@ export interface Annotation {
   componentName: string | null;
   tagName: string | null;
   selector: string;
-  stackContext: string;
-  bounds: AnnotateRect;
   url: string;
   anchor: AnnotateAnchor;
   screenshotFile: string | null;
   screenshotDataUrl: string | null;
 }
 
-export interface PendingAnnotationDraft {
-  anchor: AnnotateAnchor;
-  bounds: AnnotateRect;
+/** Sent to the server to render annotations.md (no client-only fields). */
+export interface AnnotationRecord {
+  number: number;
+  comment: string;
+  filePath: string;
+  lineNumber: number | null;
+  componentName: string | null;
+  tagName: string | null;
+  selector: string;
+  url: string;
+  screenshotFile: string | null;
 }
 
 export interface AnnotateRegion {

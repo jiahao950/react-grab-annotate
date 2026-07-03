@@ -1,7 +1,15 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { renderManifestMarkdown } from "./markdown.js";
-import type { AnnotationInput, ServerConfig, SessionManifest, StoredAnnotation } from "./types.js";
+import { renderAnnotationsMarkdown } from "./markdown.js";
+import type {
+  AnnotationRecord,
+  RootManifest,
+  RootSessionEntry,
+  ServerConfig,
+  SessionImage,
+  SyncResult,
+} from "./types.js";
 
 const MANIFEST_FILE = "manifest.json";
 const MARKDOWN_FILE = "annotations.md";
@@ -9,179 +17,115 @@ const DATA_URL_PREFIX = /^data:[^;]+;base64,/;
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const sanitizeSegment = (value: string): string =>
-  value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 64) || "session";
+  value.replace(/[^a-zA-Z0-9._-]/g, "-").slice(0, 40) || "session";
 
-const decodeImage = (imageBase64: string): Buffer => {
-  const payload = imageBase64.replace(DATA_URL_PREFIX, "");
-  return Buffer.from(payload, "base64");
+const decodeImage = (imageBase64: string): Buffer =>
+  Buffer.from(imageBase64.replace(DATA_URL_PREFIX, ""), "base64");
+
+const baseDirPath = (config: ServerConfig): string => resolve(config.rootDir, config.baseDir);
+const rootManifestPath = (config: ServerConfig): string => join(baseDirPath(config), MANIFEST_FILE);
+
+// Replace the home-dir prefix with `~` so the copied prompt path stays short.
+const shortenHome = (absolutePath: string): string => {
+  const home = homedir();
+  if (absolutePath === home) return "~";
+  if (absolutePath.startsWith(`${home}/`)) return `~${absolutePath.slice(home.length)}`;
+  return absolutePath;
 };
 
-export const getSessionDir = (config: ServerConfig, sessionId: string): string =>
-  resolve(config.rootDir, config.baseDir, sanitizeSegment(sessionId));
-
-const getManifestPath = (sessionDir: string): string => join(sessionDir, MANIFEST_FILE);
-
-const readManifest = async (sessionDir: string, sessionId: string): Promise<SessionManifest> => {
+const readRootManifest = async (config: ServerConfig): Promise<RootManifest> => {
   try {
-    const raw = await readFile(getManifestPath(sessionDir), "utf8");
-    const parsed: SessionManifest = JSON.parse(raw);
-    return parsed;
+    const parsed: RootManifest = JSON.parse(await readFile(rootManifestPath(config), "utf8"));
+    if (Array.isArray(parsed.sessions)) return parsed;
   } catch {
-    return { sessionId, createdAt: Date.now(), updatedAt: Date.now(), annotations: [] };
+    // no manifest yet
   }
+  return { sessions: [] };
 };
 
-const flushManifest = async (sessionDir: string, manifest: SessionManifest): Promise<void> => {
-  manifest.updatedAt = Date.now();
-  await writeFile(getManifestPath(sessionDir), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  await writeFile(join(sessionDir, MARKDOWN_FILE), renderManifestMarkdown(manifest), "utf8");
+const writeRootManifest = async (config: ServerConfig, manifest: RootManifest): Promise<void> => {
+  await writeFile(rootManifestPath(config), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 };
 
-const screenshotFileName = (annotation: AnnotationInput): string =>
-  `image-${annotation.number}-${sanitizeSegment(annotation.id)}.png`;
-
-export interface SaveResult {
-  annotation: StoredAnnotation;
-  sessionDir: string;
-  markdownPath: string;
-}
-
-export const saveAnnotation = async (
+export const syncSession = async (
   config: ServerConfig,
   sessionId: string,
-  input: AnnotationInput,
-  imageBase64: string | null | undefined,
-): Promise<SaveResult> => {
-  const sessionDir = getSessionDir(config, sessionId);
+  annotations: AnnotationRecord[],
+  image?: SessionImage | null,
+): Promise<SyncResult> => {
+  const folder = sanitizeSegment(sessionId);
+  const sessionDir = join(baseDirPath(config), folder);
   await mkdir(sessionDir, { recursive: true });
-  const manifest = await readManifest(sessionDir, sessionId);
 
-  let screenshotFile: string | null = null;
-  if (imageBase64) {
-    screenshotFile = screenshotFileName(input);
-    await writeFile(join(sessionDir, screenshotFile), decodeImage(imageBase64));
+  if (image?.file && image.base64) {
+    await writeFile(join(sessionDir, sanitizeSegment(image.file)), decodeImage(image.base64));
+  }
+  await writeFile(join(sessionDir, MARKDOWN_FILE), renderAnnotationsMarkdown(annotations), "utf8");
+
+  const manifest = await readRootManifest(config);
+  if (!manifest.sessions.some((entry) => entry.path === folder)) {
+    manifest.sessions.push({ path: folder, createdAt: Date.now() });
+    await writeRootManifest(config, manifest);
   }
 
-  const now = Date.now();
-  const stored: StoredAnnotation = {
-    ...input,
-    screenshotFile,
-    createdAt: now,
-    updatedAt: now,
+  return {
+    sessionDir,
+    markdownPath: shortenHome(join(sessionDir, MARKDOWN_FILE)),
+    count: annotations.length,
   };
-
-  const existingIndex = manifest.annotations.findIndex((entry) => entry.id === input.id);
-  if (existingIndex === -1) {
-    manifest.annotations.push(stored);
-  } else {
-    manifest.annotations[existingIndex] = stored;
-  }
-
-  await flushManifest(sessionDir, manifest);
-  return { annotation: stored, sessionDir, markdownPath: join(sessionDir, MARKDOWN_FILE) };
 };
 
-export const updateAnnotation = async (
-  config: ServerConfig,
-  sessionId: string,
-  annotationId: string,
-  comment: string | undefined,
-  imageBase64: string | null | undefined,
-): Promise<StoredAnnotation | null> => {
-  const sessionDir = getSessionDir(config, sessionId);
-  const manifest = await readManifest(sessionDir, sessionId);
-  const target = manifest.annotations.find((entry) => entry.id === annotationId);
-  if (!target) return null;
+export const deleteSession = async (config: ServerConfig, sessionId: string): Promise<boolean> => {
+  const folder = sanitizeSegment(sessionId);
+  await rm(join(baseDirPath(config), folder), { recursive: true, force: true });
 
-  if (typeof comment === "string") target.comment = comment;
-  if (imageBase64) {
-    const screenshotFile = target.screenshotFile ?? screenshotFileName(target);
-    await writeFile(join(sessionDir, screenshotFile), decodeImage(imageBase64));
-    target.screenshotFile = screenshotFile;
+  const manifest = await readRootManifest(config);
+  const remaining = manifest.sessions.filter((entry) => entry.path !== folder);
+  if (remaining.length !== manifest.sessions.length) {
+    await writeRootManifest(config, { sessions: remaining });
   }
-  target.updatedAt = Date.now();
-
-  await flushManifest(sessionDir, manifest);
-  return target;
-};
-
-export const deleteAnnotation = async (
-  config: ServerConfig,
-  sessionId: string,
-  annotationId: string,
-): Promise<boolean> => {
-  const sessionDir = getSessionDir(config, sessionId);
-  const manifest = await readManifest(sessionDir, sessionId);
-  const target = manifest.annotations.find((entry) => entry.id === annotationId);
-  if (!target) return false;
-
-  manifest.annotations = manifest.annotations.filter((entry) => entry.id !== annotationId);
-  if (target.screenshotFile) {
-    await rm(join(sessionDir, target.screenshotFile), { force: true });
-  }
-  await flushManifest(sessionDir, manifest);
   return true;
 };
 
-export interface SubmitResult {
-  sessionDir: string;
-  markdownPath: string;
-  count: number;
-}
-
-export const submitSession = async (
-  config: ServerConfig,
-  sessionId: string,
-): Promise<SubmitResult> => {
-  const sessionDir = getSessionDir(config, sessionId);
-  const manifest = await readManifest(sessionDir, sessionId);
-  await flushManifest(sessionDir, manifest);
-  return {
-    sessionDir,
-    markdownPath: join(sessionDir, MARKDOWN_FILE),
-    count: manifest.annotations.length,
-  };
-};
-
-// Deletes session directories created more than `maxAgeMs` ago. Uses the
-// manifest's createdAt, falling back to the directory mtime. Returns the number
-// of sessions removed.
+// Removes session folders older than `maxAgeMs`, driven by the root manifest's
+// createdAt (falling back to directory mtime for folders not in the manifest).
 export const cleanupStaleSessions = async (
   config: ServerConfig,
   maxAgeMs: number = SESSION_MAX_AGE_MS,
 ): Promise<number> => {
-  const baseDir = resolve(config.rootDir, config.baseDir);
-  let entries;
+  const base = baseDirPath(config);
+  let dirEntries;
   try {
-    entries = await readdir(baseDir, { withFileTypes: true });
+    dirEntries = await readdir(base, { withFileTypes: true });
   } catch {
-    return 0;
+    return 0; // base dir does not exist yet — nothing to clean, don't create it
   }
 
   const now = Date.now();
+  const manifest = await readRootManifest(config);
+  const indexed = new Map(manifest.sessions.map((entry) => [entry.path, entry.createdAt]));
+  const kept: RootSessionEntry[] = [];
   let removedCount = 0;
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const sessionDir = join(baseDir, entry.name);
 
-    let createdAt: number | null = null;
-    try {
-      const manifest: SessionManifest = JSON.parse(
-        await readFile(join(sessionDir, MANIFEST_FILE), "utf8"),
-      );
-      createdAt = manifest.createdAt;
-    } catch {
+  for (const dirEntry of dirEntries) {
+    if (!dirEntry.isDirectory()) continue;
+    const folder = dirEntry.name;
+    let createdAt = indexed.get(folder);
+    if (createdAt === undefined) {
       try {
-        createdAt = (await stat(sessionDir)).mtimeMs;
+        createdAt = (await stat(join(base, folder))).mtimeMs;
       } catch {
         continue;
       }
     }
-
-    if (createdAt !== null && now - createdAt > maxAgeMs) {
-      await rm(sessionDir, { recursive: true, force: true });
+    if (now - createdAt > maxAgeMs) {
+      await rm(join(base, folder), { recursive: true, force: true });
       removedCount += 1;
+    } else {
+      kept.push({ path: folder, createdAt });
     }
   }
+
+  await writeRootManifest(config, { sessions: kept });
   return removedCount;
 };

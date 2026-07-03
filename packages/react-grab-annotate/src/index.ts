@@ -6,7 +6,7 @@ export type * from "./types.js";
 
 const DEFAULT_PORT = 5179;
 const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_BASE_DIR = ".react-grab-annotations";
+const DEFAULT_BASE_DIR = ".react-grab";
 
 const parseArgs = (argv: string[]): Partial<ServerConfig> => {
   const config: Partial<ServerConfig> = {};

@@ -2,7 +2,7 @@
 
 Annotate a running React app right in the browser — select or box-select any
 element, write a comment — and it's saved to your project as
-**screenshot + source location (`file:line`) + component stack + comment**.
+**screenshot + source location (`file:line`) + comment**.
 Hand the result to an AI coding agent and it knows exactly what to change and
 where.
 
@@ -24,10 +24,11 @@ Two pieces run only during local development:
 you (browser)  ──select + comment──▶  <ReactGrabAnnotate/>  ──HTTP──▶  local server
                                                                           │
                                                                           ▼
-                                       <your-project>/.react-grab-annotations/<session>/
-                                         ├─ image-1.png        (snapDOM screenshot)
-                                         ├─ manifest.json      (structured data)
-                                         └─ annotations.md     (what you paste to the AI)
+                                       <your-project>/.react-grab/
+                                         ├─ manifest.json          (session index, for cleanup)
+                                         └─ <session>/
+                                            ├─ image-1.png         (snapDOM screenshot)
+                                            └─ annotations.md      (what you paste to the AI)
 ```
 
 ---
@@ -84,7 +85,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 ```gitignore
 # .gitignore
-.react-grab-annotations/
+.react-grab/
 ```
 
 Run `pnpm dev` and you're set.
@@ -139,7 +140,7 @@ const handle = startAnnotate({ serverUrl: "http://localhost:5179" });
 | `--port` | `ANNOTATE_PORT` | `5179` |
 | `--host` | `ANNOTATE_HOST` | `127.0.0.1` |
 | `--dir` | `ANNOTATE_DIR` | `process.cwd()` |
-| `--base-dir` | `ANNOTATE_BASE_DIR` | `.react-grab-annotations` |
+| `--base-dir` | `ANNOTATE_BASE_DIR` | `.react-grab` |
 
 Sessions older than 1 day are pruned on startup. Programmatic use:
 `import { startAnnotateServer } from "react-grab-annotate/server"`.

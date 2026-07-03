@@ -18,7 +18,9 @@ await build({
   jsx: "automatic",
   external: ["react", "react-dom", "react/jsx-runtime"],
   banner: { js: '"use client";' },
-  minify: true,
+  // Not minified on purpose: re-minifying react-grab's already-built snapDOM
+  // bundle corrupts its canvas/rasterization pipeline (blank/broken PNGs).
+  minify: false,
   legalComments: "none",
 });
 

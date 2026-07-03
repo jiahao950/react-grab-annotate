@@ -1,12 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import {
-  cleanupStaleSessions,
-  deleteAnnotation,
-  saveAnnotation,
-  submitSession,
-  updateAnnotation,
-} from "./storage.js";
-import type { SaveAnnotationRequest, ServerConfig, UpdateAnnotationRequest } from "./types.js";
+import { cleanupStaleSessions, deleteSession, syncSession } from "./storage.js";
+import type { ServerConfig, SyncSessionRequest } from "./types.js";
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
@@ -69,81 +63,31 @@ const handleRequest = async (
     return;
   }
 
-  // POST /api/annotations
-  if (method === "POST" && url.pathname === "/api/annotations") {
-    const payload = await readJsonBody<SaveAnnotationRequest>(request);
-    if (!payload.sessionId || !payload.annotation) {
-      sendJson(response, 400, { error: "sessionId and annotation are required" });
-      return;
-    }
-    const result = await saveAnnotation(
-      config,
-      payload.sessionId,
-      payload.annotation,
-      payload.imageBase64,
-    );
-    sendJson(response, 200, {
-      ok: true,
-      id: result.annotation.id,
-      screenshotFile: result.annotation.screenshotFile,
-      sessionDir: result.sessionDir,
-      markdownPath: result.markdownPath,
-    });
-    return;
-  }
-
-  // PUT /api/annotations/:id  &  DELETE /api/annotations/:id
-  if (segments[0] === "api" && segments[1] === "annotations" && segments[2]) {
-    const annotationId = decodeURIComponent(segments[2]);
+  // /api/sessions/:id — the client is the source of truth and syncs the full
+  // annotation snapshot (PUT) or discards the session (DELETE).
+  if (segments[0] === "api" && segments[1] === "sessions" && segments[2]) {
+    const sessionId = decodeURIComponent(segments[2]);
     if (method === "PUT") {
-      const payload = await readJsonBody<UpdateAnnotationRequest>(request);
-      if (!payload.sessionId) {
-        sendJson(response, 400, { error: "sessionId is required" });
-        return;
-      }
-      const updated = await updateAnnotation(
+      const payload = await readJsonBody<SyncSessionRequest>(request);
+      const result = await syncSession(
         config,
-        payload.sessionId,
-        annotationId,
-        payload.comment,
-        payload.imageBase64,
+        sessionId,
+        Array.isArray(payload.annotations) ? payload.annotations : [],
+        payload.image,
       );
-      if (!updated) {
-        sendJson(response, 404, { error: "annotation not found" });
-        return;
-      }
-      sendJson(response, 200, { ok: true, annotation: updated });
+      sendJson(response, 200, {
+        ok: true,
+        markdownPath: result.markdownPath,
+        sessionDir: result.sessionDir,
+        count: result.count,
+      });
       return;
     }
     if (method === "DELETE") {
-      const sessionId = url.searchParams.get("sessionId");
-      if (!sessionId) {
-        sendJson(response, 400, { error: "sessionId query param is required" });
-        return;
-      }
-      const removed = await deleteAnnotation(config, sessionId, annotationId);
-      sendJson(response, removed ? 200 : 404, { ok: removed });
+      await deleteSession(config, sessionId);
+      sendJson(response, 200, { ok: true });
       return;
     }
-  }
-
-  // POST /api/sessions/:id/submit
-  if (
-    method === "POST" &&
-    segments[0] === "api" &&
-    segments[1] === "sessions" &&
-    segments[2] &&
-    segments[3] === "submit"
-  ) {
-    const sessionId = decodeURIComponent(segments[2]);
-    const result = await submitSession(config, sessionId);
-    sendJson(response, 200, {
-      ok: true,
-      markdownPath: result.markdownPath,
-      sessionDir: result.sessionDir,
-      count: result.count,
-    });
-    return;
   }
 
   sendJson(response, 404, { error: "not found" });
@@ -161,8 +105,6 @@ export const startAnnotateServer = (config: ServerConfig): ReturnType<typeof cre
       `[react-grab annotate] listening on http://${config.host}:${config.port}\n` +
         `[react-grab annotate] writing to ${config.rootDir}/${config.baseDir}\n`,
     );
-    // Prune annotation sessions older than a day so the output directory does
-    // not grow unbounded across runs.
     cleanupStaleSessions(config)
       .then((removedCount) => {
         if (removedCount > 0) {

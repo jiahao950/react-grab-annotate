@@ -1,48 +1,33 @@
-export interface AnnotationBounds {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface AnnotationInput {
-  id: string;
+export interface AnnotationRecord {
   number: number;
   comment: string;
   filePath: string;
   lineNumber: number | null;
-  columnNumber?: number | null;
   componentName: string | null;
   tagName: string | null;
   selector: string;
-  stackContext: string;
-  bounds: AnnotationBounds;
   url: string;
-}
-
-export interface StoredAnnotation extends AnnotationInput {
   screenshotFile: string | null;
+}
+
+export interface SessionImage {
+  file: string;
+  base64: string;
+}
+
+export interface SyncSessionRequest {
+  annotations: AnnotationRecord[];
+  image?: SessionImage | null;
+}
+
+/** Root cleanup index (baseDir/manifest.json): just folder + creation time. */
+export interface RootSessionEntry {
+  path: string;
   createdAt: number;
-  updatedAt: number;
 }
 
-export interface SessionManifest {
-  sessionId: string;
-  createdAt: number;
-  updatedAt: number;
-  annotations: StoredAnnotation[];
-}
-
-export interface SaveAnnotationRequest {
-  sessionId: string;
-  annotation: AnnotationInput;
-  imageBase64?: string | null;
-}
-
-export interface UpdateAnnotationRequest {
-  sessionId: string;
-  comment?: string;
-  imageBase64?: string | null;
+export interface RootManifest {
+  sessions: RootSessionEntry[];
 }
 
 export interface ServerConfig {
@@ -50,4 +35,11 @@ export interface ServerConfig {
   host: string;
   rootDir: string;
   baseDir: string;
+}
+
+export interface SyncResult {
+  sessionDir: string;
+  /** Home-shortened (`~/…`) path to annotations.md, for the copied prompt. */
+  markdownPath: string;
+  count: number;
 }
