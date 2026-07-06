@@ -335,6 +335,7 @@ export interface ComponentChainEntry {
   name: string;
   filePath: string | null;
   lineNumber: number | null;
+  exact: boolean;
 }
 
 // The chain of feature components that authored the element, INNERMOST first
@@ -378,7 +379,10 @@ export const resolveComponentChain = async (element: Element): Promise<Component
       const fiber = ownerFibers[index];
       const name = getSourceComponentName(fiber);
       if (!name || seenNames.has(name)) continue;
-      const sourceFiber = index === 0 && firstOwnerIsDirect ? hostFiber : fiber;
+      // Only the innermost entry, when the element is authored directly, gets
+      // the element's own line. Everything else is a component-level location.
+      const usesElementSource = index === 0 && firstOwnerIsDirect;
+      const sourceFiber = usesElementSource ? hostFiber : fiber;
       let filePath: string | null = null;
       let lineNumber: number | null = null;
       try {
@@ -391,7 +395,7 @@ export const resolveComponentChain = async (element: Element): Promise<Component
         // keep the name even if the location couldn't be resolved
       }
       seenNames.add(name);
-      entries.push({ name, filePath, lineNumber });
+      entries.push({ name, filePath, lineNumber, exact: usesElementSource });
     }
     return entries;
   }, []);

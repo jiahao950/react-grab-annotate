@@ -2,6 +2,7 @@ export interface ComponentChainEntry {
   name: string;
   filePath: string | null;
   lineNumber: number | null;
+  exact?: boolean;
 }
 
 export interface AnnotationRecord {

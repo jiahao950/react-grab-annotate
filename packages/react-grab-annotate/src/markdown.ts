@@ -26,9 +26,15 @@ const renderAnnotation = (annotation: AnnotationRecord): string => {
   lines.push("");
   if (chain.length > 0) {
     lines.push("- 组件链（从内到外）。第一个是你标注的组件，通常就是要改的；其余是它的父级容器，供定位:");
-    for (const entry of chain) {
-      lines.push(`  - ${entry.name} — \`${formatChainLocation(entry)}\``);
-    }
+    chain.forEach((entry, index) => {
+      // The first entry is the selected element. When its line is the
+      // component's declaration (element wrapped by framer-motion/HOC, exact
+      // line unrecoverable), flag it so the reader searches within the file
+      // rather than trusting a misleading precise line.
+      const approximate = index === 0 && entry.exact === false && entry.lineNumber !== null;
+      const note = approximate ? "（组件声明处，非元素精确行——在此文件内查找该元素）" : "";
+      lines.push(`  - ${entry.name} — \`${formatChainLocation(entry)}\`${note}`);
+    });
   } else {
     lines.push(`- 源码位置: \`${formatSourceLocation(annotation)}\``);
   }

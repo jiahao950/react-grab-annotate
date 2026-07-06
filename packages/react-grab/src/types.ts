@@ -420,6 +420,13 @@ export interface ComponentChainEntry {
   name: string;
   filePath: string | null;
   lineNumber: number | null;
+  /**
+   * True when `lineNumber` is the selected element's own JSX line. False when
+   * it's the component's declaration line — the element is rendered through a
+   * wrapper (framer-motion, HOC) so its exact line isn't recoverable, and this
+   * only pins the component/file.
+   */
+  exact: boolean;
 }
 
 export interface ToolbarState {
