@@ -5,7 +5,7 @@ import { logRecoverableError } from "../utils/log-recoverable-error.js";
 import { createAnnotateClient, type AnnotateClient, type SessionImage } from "./client.js";
 import { ANNOTATE_DEFAULT_SERVER_URL, ANNOTATE_TOAST_DURATION_MS } from "./constants.js";
 import { mountAnnotateOverlay } from "./mount.js";
-import { captureElementPng, captureRegionPng } from "./screenshot.js";
+import { captureAnnotationScreenshot, type HighlightRect } from "./screenshot.js";
 import { createAnnotateStore, type AnnotateStore } from "./store.js";
 import { AnnotateOverlay } from "./components/annotate-overlay.js";
 import type {
@@ -189,10 +189,25 @@ export const createAnnotateController = (
     region: CommentSubmitInput["region"],
   ): Promise<void> => {
     const number = store.annotations.find((entry) => entry.id === id)?.number;
+
+    // Reuse the on-screen selection block as the screenshot highlight: the drag
+    // rectangle for a box selection, the element's bounds for a single click.
+    // Coordinates are viewport-relative to match the full-viewport capture.
+    const highlights: HighlightRect[] = region
+      ? [
+          {
+            x: region.pageX - window.scrollX,
+            y: region.pageY - window.scrollY,
+            width: region.width,
+            height: region.height,
+          },
+        ]
+      : [element.getBoundingClientRect()];
+
     const [source, componentChain, screenshotDataUrl] = await Promise.all([
       api.getSource(element).catch(() => null),
       api.getComponentChain(element).catch(() => []),
-      region ? captureRegionPng(region) : captureElementPng(element),
+      captureAnnotationScreenshot(highlights),
     ]);
 
     // A box/region selection means "act on all of these sibling elements", so
@@ -214,7 +229,7 @@ export const createAnnotateController = (
       if (coveredComponents.length <= 1) coveredComponents = [];
     }
 
-    const screenshotFile = screenshotDataUrl && number !== undefined ? `image-${number}.png` : null;
+    const screenshotFile = screenshotDataUrl && number !== undefined ? `image-${number}.webp` : null;
     store.patch(id, {
       filePath: source?.filePath ?? "",
       lineNumber: source?.lineNumber ?? null,
