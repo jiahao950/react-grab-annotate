@@ -17,14 +17,24 @@ const renderAnnotation = (annotation: AnnotationRecord): string => {
   // its parent containers, for locating it. Base-UI wrappers are already
   // filtered out upstream, so the first entry is a real feature component.
   const chain = annotation.componentChain ?? [];
-  const heading =
-    chain.length > 0
+  const covered = annotation.coveredComponents ?? [];
+  const isMultiComponent = covered.length > 1;
+  const heading = isMultiComponent
+    ? covered.map((entry) => entry.name).join(" / ")
+    : chain.length > 0
       ? chain[0].name
       : annotation.componentName || annotation.tagName || "元素";
   const lines: string[] = [];
   lines.push(`## #${annotation.number} — ${heading}`);
   lines.push("");
-  if (chain.length > 0) {
+  if (isMultiComponent) {
+    // A box/region selection spanning multiple components: list each covered
+    // component instead of a single ancestry chain.
+    lines.push(`- 框选区域覆盖 ${covered.length} 个组件:`);
+    for (const entry of covered) {
+      lines.push(`  - ${entry.name} — \`${formatChainLocation(entry)}\``);
+    }
+  } else if (chain.length > 0) {
     lines.push("- 组件链（从内到外）:");
     chain.forEach((entry, index) => {
       // The first entry is the selected element. When its line is the

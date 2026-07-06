@@ -12,6 +12,7 @@ export interface AnnotationRecord {
   lineNumber: number | null;
   componentName: string | null;
   componentChain?: ComponentChainEntry[];
+  coveredComponents?: ComponentChainEntry[];
   tagName: string | null;
   selector: string;
   url: string;

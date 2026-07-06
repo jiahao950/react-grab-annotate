@@ -8,7 +8,13 @@ import { mountAnnotateOverlay } from "./mount.js";
 import { captureElementPng, captureRegionPng } from "./screenshot.js";
 import { createAnnotateStore, type AnnotateStore } from "./store.js";
 import { AnnotateOverlay } from "./components/annotate-overlay.js";
-import type { AnnotateAnchor, Annotation, AnnotationRecord, CommentSubmitInput } from "./types.js";
+import type {
+  AnnotateAnchor,
+  Annotation,
+  AnnotationRecord,
+  CommentSubmitInput,
+  ComponentChainEntry,
+} from "./types.js";
 
 export interface AnnotateControllerOptions {
   serverUrl?: string;
@@ -56,6 +62,7 @@ const toRecord = (annotation: Annotation): AnnotationRecord => ({
   lineNumber: annotation.lineNumber,
   componentName: annotation.componentName,
   componentChain: annotation.componentChain,
+  coveredComponents: annotation.coveredComponents,
   tagName: annotation.tagName,
   selector: annotation.selector,
   url: annotation.url,
@@ -178,6 +185,7 @@ export const createAnnotateController = (
   const finalizeAnnotation = async (
     id: string,
     element: Element,
+    elements: Element[],
     region: CommentSubmitInput["region"],
   ): Promise<void> => {
     const number = store.annotations.find((entry) => entry.id === id)?.number;
@@ -186,6 +194,27 @@ export const createAnnotateController = (
       api.getComponentChain(element).catch(() => []),
       region ? captureRegionPng(region) : captureElementPng(element),
     ]);
+
+    // A box/region selection can span several distinct components; resolve the
+    // innermost feature component of each covered element and dedupe, so a
+    // multi-component selection isn't collapsed to a single element. Only kept
+    // when it genuinely covers more than one distinct component.
+    let coveredComponents: ComponentChainEntry[] = [];
+    if (region && elements.length > 1) {
+      const chains = await Promise.all(
+        elements.slice(0, 12).map((entry) => api.getComponentChain(entry).catch(() => [])),
+      );
+      const seen = new Set<string>();
+      for (const chain of chains) {
+        const head = chain[0];
+        if (!head) continue;
+        const key = `${head.name}@${head.filePath ?? ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        coveredComponents.push(head);
+      }
+      if (coveredComponents.length <= 1) coveredComponents = [];
+    }
 
     const screenshotFile = screenshotDataUrl && number !== undefined ? `image-${number}.png` : null;
     store.patch(id, {
@@ -198,8 +227,11 @@ export const createAnnotateController = (
       // The innermost feature component in the chain is the selected thing;
       // fall back to the resolved source / sync name when there's no chain.
       componentName:
-        componentChain[0]?.name ?? source?.componentName ?? api.getDisplayName(element) ?? null,
+        coveredComponents.length > 1
+          ? coveredComponents.map((entry) => entry.name).join(" / ")
+          : (componentChain[0]?.name ?? source?.componentName ?? api.getDisplayName(element) ?? null),
       componentChain,
+      coveredComponents,
       screenshotDataUrl,
       screenshotFile,
     });
@@ -234,6 +266,7 @@ export const createAnnotateController = (
       lineNumber: null,
       componentName: api.getDisplayName(element),
       componentChain: [],
+      coveredComponents: [],
       tagName: element.tagName.toLowerCase(),
       selector: createElementSelector(element),
       url: window.location.href,
@@ -246,7 +279,8 @@ export const createAnnotateController = (
     // heavy source-resolution + screenshot work is deferred to after paint and
     // tracked, so only the final submit shows a spinner while it drains.
     store.add(annotation);
-    void track(deferCapture(() => finalizeAnnotation(id, element, input.region ?? null)));
+    const elements = input.elements.length > 0 ? input.elements : [element];
+    void track(deferCapture(() => finalizeAnnotation(id, element, elements, input.region ?? null)));
   };
 
   return {

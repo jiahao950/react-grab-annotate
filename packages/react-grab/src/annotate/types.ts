@@ -22,6 +22,12 @@ export interface Annotation {
   lineNumber: number | null;
   componentName: string | null;
   componentChain: ComponentChainEntry[];
+  /**
+   * For a box/region selection spanning several DISTINCT components, the set of
+   * components it covers (innermost feature component of each, deduped). Empty
+   * for a single-element selection or a box that only covers one component.
+   */
+  coveredComponents: ComponentChainEntry[];
   tagName: string | null;
   selector: string;
   url: string;
@@ -38,6 +44,7 @@ export interface AnnotationRecord {
   lineNumber: number | null;
   componentName: string | null;
   componentChain: ComponentChainEntry[];
+  coveredComponents: ComponentChainEntry[];
   tagName: string | null;
   selector: string;
   url: string;
