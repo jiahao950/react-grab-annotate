@@ -6,9 +6,7 @@ import {
 import { logRecoverableError } from "../utils/log-recoverable-error.js";
 
 // Never serialize our own overlay hosts (marks/cards) or react-grab's overlay
-// into a capture, even when the chosen container is an ancestor of them. The
-// selection highlight is drawn onto the canvas afterwards instead, so the shot
-// stays a clean page snapshot plus one crisp highlight.
+// into a capture, even when the chosen container is an ancestor of them.
 const OVERLAY_EXCLUDE_SELECTORS = ["[data-react-grab-annotate]", "[data-react-grab]"];
 
 // Highlight styling. A translucent fill plus a solid border mirrors the
@@ -28,13 +26,73 @@ export interface HighlightRect {
 const getFullCaptureDpr = (): number =>
   Math.min(window.devicePixelRatio || 1, ANNOTATE_SCREENSHOT_FULL_MAX_DPR);
 
+// The highlight must render under the SAME transforms snapDOM applies to the
+// target — a fixed/centered modal, a translated dialog, etc. snapDOM re-lays-out
+// those out-of-flow subtrees at a different origin than the live viewport, so a
+// highlight drawn at live coordinates would land in the wrong place. Injecting
+// it into the target's containing block (the ancestor absolute positioning
+// resolves against) makes it move together with the target, wherever snapDOM
+// puts that subtree. Falls back to <body> for normal-flow content.
+const findContainingBlock = (element: Element): Element => {
+  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    const style = getComputedStyle(ancestor);
+    if (
+      style.position !== "static" ||
+      style.transform !== "none" ||
+      style.translate !== "none" ||
+      style.rotate !== "none" ||
+      style.scale !== "none" ||
+      style.perspective !== "none" ||
+      style.filter !== "none" ||
+      style.willChange.includes("transform")
+    ) {
+      return ancestor;
+    }
+  }
+  return document.body;
+};
+
+// Absolutely-positioned highlight overlays, positioned relative to the target's
+// containing block so they track it through snapDOM's re-layout. Returns a
+// cleanup that removes them.
+const injectHighlights = (highlights: HighlightRect[], anchor: Element): (() => void) => {
+  const containingBlock = findContainingBlock(anchor);
+  const blockRect = containingBlock.getBoundingClientRect();
+  const injected: HTMLElement[] = [];
+  for (const rect of highlights) {
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    const overlay = document.createElement("div");
+    // Offset from the containing block's padding edge (getBoundingClientRect
+    // already accounts for page scroll; clientLeft/Top strip its border, and
+    // scrollLeft/Top account for its own scroll).
+    const left = rect.x - blockRect.left - containingBlock.clientLeft + containingBlock.scrollLeft;
+    const top = rect.y - blockRect.top - containingBlock.clientTop + containingBlock.scrollTop;
+    overlay.style.cssText = [
+      "position:absolute",
+      `left:${left}px`,
+      `top:${top}px`,
+      `width:${rect.width}px`,
+      `height:${rect.height}px`,
+      `background:${HIGHLIGHT_FILL}`,
+      `border:${HIGHLIGHT_BORDER_PX}px solid ${HIGHLIGHT_STROKE}`,
+      "box-sizing:border-box",
+      "border-radius:2px",
+      "pointer-events:none",
+      "margin:0",
+      "z-index:2147483000",
+    ].join(";");
+    containingBlock.appendChild(overlay);
+    injected.push(overlay);
+  }
+  return () => {
+    for (const overlay of injected) overlay.remove();
+  };
+};
+
 // Snapshot the whole page, then crop to the currently visible viewport. This is
 // "the page at the moment of annotation" — the element in its surrounding
 // context — rather than an isolated crop that carries no positional meaning.
-const captureViewportCanvas = async (): Promise<{
-  canvas: HTMLCanvasElement;
-  scale: number;
-} | null> => {
+const captureViewportCanvas = async (): Promise<HTMLCanvasElement | null> => {
   const dpr = getFullCaptureDpr();
   const root = document.documentElement;
   const sourceCanvas = await snapdom.toCanvas(root, {
@@ -69,45 +127,28 @@ const captureViewportCanvas = async (): Promise<{
     viewportCanvas.width,
     viewportCanvas.height,
   );
-  return { canvas: viewportCanvas, scale };
-};
-
-const drawHighlights = (
-  context: CanvasRenderingContext2D,
-  highlights: HighlightRect[],
-  scale: number,
-): void => {
-  for (const rect of highlights) {
-    if (rect.width <= 0 || rect.height <= 0) continue;
-    const x = rect.x * scale;
-    const y = rect.y * scale;
-    const width = rect.width * scale;
-    const height = rect.height * scale;
-    context.save();
-    context.fillStyle = HIGHLIGHT_FILL;
-    context.fillRect(x, y, width, height);
-    context.lineWidth = HIGHLIGHT_BORDER_PX * scale;
-    context.strokeStyle = HIGHLIGHT_STROKE;
-    context.strokeRect(x, y, width, height);
-    context.restore();
-  }
+  return viewportCanvas;
 };
 
 // Full-viewport screenshot with the selection highlight(s) drawn on top,
 // encoded as WebP. Combined with the comment and source location this is the
 // most self-explanatory record: an agent can see exactly what was pointed at
-// and where it lives on the page.
+// and where it lives on the page. `anchor` is an element inside the selection;
+// its containing block anchors the highlight so it tracks modals/transforms.
 export const captureAnnotationScreenshot = async (
   highlights: HighlightRect[],
+  anchor: Element,
 ): Promise<string | null> => {
+  let removeHighlights: (() => void) | null = null;
   try {
-    const result = await captureViewportCanvas();
-    if (!result) return null;
-    const context = result.canvas.getContext("2d");
-    if (context) drawHighlights(context, highlights, result.scale);
-    return result.canvas.toDataURL("image/webp", ANNOTATE_SCREENSHOT_WEBP_QUALITY);
+    removeHighlights = injectHighlights(highlights, anchor);
+    const canvas = await captureViewportCanvas();
+    if (!canvas) return null;
+    return canvas.toDataURL("image/webp", ANNOTATE_SCREENSHOT_WEBP_QUALITY);
   } catch (error) {
     logRecoverableError("annotate:screenshot", error);
     return null;
+  } finally {
+    if (removeHighlights) removeHighlights();
   }
 };

@@ -207,7 +207,7 @@ export const createAnnotateController = (
     const [source, componentChain, screenshotDataUrl] = await Promise.all([
       api.getSource(element).catch(() => null),
       api.getComponentChain(element).catch(() => []),
-      captureAnnotationScreenshot(highlights),
+      captureAnnotationScreenshot(highlights, element),
     ]);
 
     // A box/region selection means "act on all of these sibling elements", so
