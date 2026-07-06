@@ -349,11 +349,13 @@ export const resolveComponentChain = async (element: Element): Promise<Component
   const hostFiber = getFiberFromHostInstance(findNearestFiberElement(element));
   if (!hostFiber) return [];
 
-  const ownerFibers: Fiber[] = [];
-  const seenFibers = new Set<Fiber>();
-  let owner =
+  const directOwner =
     (hostFiber as { _debugOwner?: Fiber })._debugOwner ??
     (hostFiber as { alternate?: { _debugOwner?: Fiber } }).alternate?._debugOwner;
+
+  const ownerFibers: Fiber[] = [];
+  const seenFibers = new Set<Fiber>();
+  let owner = directOwner;
   while (owner && ownerFibers.length < 6 && !seenFibers.has(owner)) {
     seenFibers.add(owner);
     if (usefulNonWrapperName(owner)) {
@@ -363,16 +365,24 @@ export const resolveComponentChain = async (element: Element): Promise<Component
   }
   if (ownerFibers.length === 0) return [];
 
+  // When the innermost feature component authored the element DIRECTLY (no base
+  // wrapper in between), resolve the element's own source so the line points at
+  // the actual JSX (e.g. the <h1> at ChatHomeViewWelcome.tsx:34) rather than the
+  // component's declaration line. Otherwise the component's own source is best.
+  const firstOwnerIsDirect = directOwner !== undefined && ownerFibers[0] === directOwner;
+
   return runQueuedSourceFetch(async (signal) => {
     const entries: ComponentChainEntry[] = [];
-    const seenKeys = new Set<string>();
-    for (const fiber of ownerFibers) {
+    const seenNames = new Set<string>();
+    for (let index = 0; index < ownerFibers.length; index += 1) {
+      const fiber = ownerFibers[index];
       const name = getSourceComponentName(fiber);
-      if (!name) continue;
+      if (!name || seenNames.has(name)) continue;
+      const sourceFiber = index === 0 && firstOwnerIsDirect ? hostFiber : fiber;
       let filePath: string | null = null;
       let lineNumber: number | null = null;
       try {
-        const source = await getSource(fiber, true, createSourceFetch(signal));
+        const source = await getSource(sourceFiber, true, createSourceFetch(signal));
         if (source?.fileName) {
           filePath = normalizeFilePath(source.fileName);
           lineNumber = source.lineNumber ?? null;
@@ -380,9 +390,7 @@ export const resolveComponentChain = async (element: Element): Promise<Component
       } catch {
         // keep the name even if the location couldn't be resolved
       }
-      const key = `${name}@${filePath ?? ""}`;
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
+      seenNames.add(name);
       entries.push({ name, filePath, lineNumber });
     }
     return entries;
