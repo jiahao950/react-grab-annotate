@@ -44,6 +44,7 @@ const toSourceComponentName = (name: string | null | undefined): string | null =
 // lets both the label and the source location fall through to the real target.
 // @see AnnotateOptions.ignoreComponents
 const DEFAULT_IGNORED_COMPONENT_NAMES = [
+  // floating-ui / radix-style overlay wrappers
   "Tooltip",
   "Popover",
   "Popper",
@@ -53,6 +54,13 @@ const DEFAULT_IGNORED_COMPONENT_NAMES = [
   "Portal",
   "Slot",
   "Trigger",
+  // framer-motion / motion (AnimatePresence internals clone their child too)
+  "PopChild",
+  "PopChildMeasure",
+  "AnimatePresence",
+  "LazyMotion",
+  "MotionConfig",
+  "Reorder",
 ];
 // Empty until a host opts in (annotate mode calls setIgnoredComponentNames), so
 // the base react-grab copy flow keeps its existing resolution behavior.
@@ -163,15 +171,24 @@ export const getStack = (element: Element): Promise<StackFrame[] | null> => {
 
 export const getNearestComponentName = async (element: Element): Promise<string | null> => {
   if (!isInstrumentationActive()) return null;
+
+  // Delegate to the same resolver the saved annotation uses, so the label and
+  // the persisted source agree — it prefers an app-origin, non-wrapper component
+  // (skipping Tooltip/HOC frames and package-origin animation wrappers like
+  // framer-motion's PopChild). Falls back to the first named stack frame.
+  const source = await resolveSource(element);
+  if (source?.componentName) return source.componentName;
+
   const stack = await getStack(element);
   if (!stack) return null;
-
+  let firstNamed: string | null = null;
   for (const frame of stack) {
     const componentName = toSourceComponentName(frame.functionName);
-    if (componentName) return componentName;
+    if (!componentName) continue;
+    if (firstNamed === null) firstNamed = componentName;
+    if (!isIgnoredComponentName(componentName)) return componentName;
   }
-
-  return null;
+  return firstNamed;
 };
 
 export interface ResolvedSource extends SourceLocation {
