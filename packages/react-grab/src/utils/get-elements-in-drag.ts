@@ -42,6 +42,14 @@ const sortByDocumentOrder = (elements: Element[]): Element[] => {
   });
 };
 
+// Our own overlay/shadow-host elements. elementsFromPoint returns them too, and
+// we must skip them when deciding which real page element is topmost at a point.
+const isOverlayElement = (element: Element): boolean => {
+  if (element.hasAttribute("data-react-grab")) return true;
+  const rootNode = element.getRootNode();
+  return rootNode instanceof ShadowRoot && rootNode.host.hasAttribute("data-react-grab");
+};
+
 interface SamplePoint {
   x: number;
   y: number;
@@ -139,8 +147,23 @@ const filterElementsInDrag = (
   try {
     for (const point of samplePoints) {
       const elementsAtPoint = document.elementsFromPoint(point.x, point.y);
+      // Only the topmost real element at this point (and its ancestors, which
+      // contain it) is actually visible here. Anything deeper in the stack that
+      // is NOT an ancestor of the top element is painted behind it — e.g. page
+      // content occluded by a modal/dialog. Including it would let a box drawn
+      // inside a modal "select through" to the background. Skip our own overlay
+      // when finding the top element.
+      let topElement: Element | null = null;
+      for (const element of elementsAtPoint) {
+        if (isOverlayElement(element)) continue;
+        topElement = element;
+        break;
+      }
+      if (!topElement) continue;
       for (const candidateElement of elementsAtPoint) {
-        candidates.add(candidateElement);
+        if (candidateElement === topElement || candidateElement.contains(topElement)) {
+          candidates.add(candidateElement);
+        }
       }
     }
   } finally {
@@ -203,11 +226,37 @@ const removeNestedElements = (elements: Element[]): Element[] => {
   });
 };
 
+// When a drag collapses to a single covered container, the user was almost
+// always boxing the SIBLINGS inside it (e.g. a row of chips) rather than the
+// container itself. Descend through single-covered-child wrappers and return
+// the shallowest level that has more than one covered child — that sibling
+// group is what the box was drawn around. Stops at the first branch, so a chip
+// with an icon + label doesn't get split into its parts.
+const expandToSiblingGroup = (container: Element, coveredElements: Set<Element>): Element[] => {
+  let current = container;
+  for (;;) {
+    const coveredChildren = Array.from(current.children).filter((child) =>
+      coveredElements.has(child),
+    );
+    if (coveredChildren.length === 0) return [current];
+    if (coveredChildren.length === 1) {
+      current = coveredChildren[0];
+      continue;
+    }
+    return coveredChildren;
+  }
+};
+
 export const getElementsInDrag = (
   dragRect: DragRect,
   isValidGrabbableElement: (element: Element) => boolean,
   shouldCheckCoverage = true,
 ): Element[] => {
   const elements = filterElementsInDrag(dragRect, isValidGrabbableElement, shouldCheckCoverage);
-  return removeNestedElements(elements);
+  const outermost = removeNestedElements(elements);
+  // A single outermost element means everything the box covered shares one
+  // container; expand it to the sibling group the user actually framed. Any
+  // other count is already a set of distinct siblings — leave it untouched.
+  if (outermost.length !== 1) return outermost;
+  return expandToSiblingGroup(outermost[0], new Set(elements));
 };

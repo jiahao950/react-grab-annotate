@@ -3,6 +3,8 @@ export interface ComponentChainEntry {
   filePath: string | null;
   lineNumber: number | null;
   exact?: boolean;
+  /** DOM selector, set only for covered-elements (box selection) entries. */
+  selector?: string;
 }
 
 export interface AnnotationRecord {

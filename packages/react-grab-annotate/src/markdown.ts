@@ -20,7 +20,7 @@ const renderAnnotation = (annotation: AnnotationRecord): string => {
   const covered = annotation.coveredComponents ?? [];
   const isMultiComponent = covered.length > 1;
   const heading = isMultiComponent
-    ? covered.map((entry) => entry.name).join(" / ")
+    ? Array.from(new Set(covered.map((entry) => entry.name))).join(" / ")
     : chain.length > 0
       ? chain[0].name
       : annotation.componentName || annotation.tagName || "元素";
@@ -28,11 +28,14 @@ const renderAnnotation = (annotation: AnnotationRecord): string => {
   lines.push(`## #${annotation.number} — ${heading}`);
   lines.push("");
   if (isMultiComponent) {
-    // A box/region selection spanning multiple components: list each covered
-    // component instead of a single ancestry chain.
-    lines.push(`- 框选区域覆盖 ${covered.length} 个组件:`);
+    // A box/region selection targets all the sibling elements inside it. List
+    // every selected element (no merge/dedupe) so each is an actionable target.
+    lines.push(`- 框选包含 ${covered.length} 个元素（同级，逐个处理）:`);
     for (const entry of covered) {
-      lines.push(`  - ${entry.name} — \`${formatChainLocation(entry)}\``);
+      const approximate = entry.exact === false && entry.lineNumber !== null;
+      const note = approximate ? "（组件声明处，非元素精确行）" : "";
+      const selector = entry.selector ? ` · \`${entry.selector}\`` : "";
+      lines.push(`  - ${entry.name} — \`${formatChainLocation(entry)}\`${selector}${note}`);
     }
   } else if (chain.length > 0) {
     lines.push("- 组件链（从内到外）:");

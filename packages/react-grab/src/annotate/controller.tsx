@@ -195,24 +195,22 @@ export const createAnnotateController = (
       region ? captureRegionPng(region) : captureElementPng(element),
     ]);
 
-    // A box/region selection can span several distinct components; resolve the
-    // innermost feature component of each covered element and dedupe, so a
-    // multi-component selection isn't collapsed to a single element. Only kept
-    // when it genuinely covers more than one distinct component.
+    // A box/region selection means "act on all of these sibling elements", so
+    // list EVERY selected element's innermost feature component. Do NOT merge or
+    // dedupe by component: two siblings that share a component (e.g. rows in a
+    // list) are distinct targets and must both appear.
     let coveredComponents: ComponentChainEntry[] = [];
     if (region && elements.length > 1) {
+      const covered = elements.slice(0, 24);
       const chains = await Promise.all(
-        elements.slice(0, 12).map((entry) => api.getComponentChain(entry).catch(() => [])),
+        covered.map((entry) => api.getComponentChain(entry).catch(() => [])),
       );
-      const seen = new Set<string>();
-      for (const chain of chains) {
+      chains.forEach((chain, index) => {
         const head = chain[0];
-        if (!head) continue;
-        const key = `${head.name}@${head.filePath ?? ""}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        coveredComponents.push(head);
-      }
+        // Sibling elements often share a component + source line, so tag each
+        // with its own selector to keep them distinguishable.
+        if (head) coveredComponents.push({ ...head, selector: createElementSelector(covered[index]) });
+      });
       if (coveredComponents.length <= 1) coveredComponents = [];
     }
 
@@ -228,7 +226,7 @@ export const createAnnotateController = (
       // fall back to the resolved source / sync name when there's no chain.
       componentName:
         coveredComponents.length > 1
-          ? coveredComponents.map((entry) => entry.name).join(" / ")
+          ? Array.from(new Set(coveredComponents.map((entry) => entry.name))).join(" / ")
           : (componentChain[0]?.name ?? source?.componentName ?? api.getDisplayName(element) ?? null),
       componentChain,
       coveredComponents,

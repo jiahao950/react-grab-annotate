@@ -12,6 +12,12 @@ export interface ComponentChainEntry {
   filePath: string | null;
   lineNumber: number | null;
   exact: boolean;
+  /**
+   * DOM selector for this specific element. Only set for covered-elements
+   * entries (box selection), where sibling elements often share a component and
+   * source line — the selector is what tells them apart.
+   */
+  selector?: string;
 }
 
 export interface Annotation {
