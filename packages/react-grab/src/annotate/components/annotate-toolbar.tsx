@@ -20,13 +20,17 @@ export const AnnotateToolbar: Component<AnnotateToolbarProps> = (props) => {
         fallback={
           <button
             type="button"
-            class="rga-btn rga-btn-primary"
+            class="rga-btn rga-btn-primary rga-icon-btn"
+            aria-label="进入标注模式"
             data-rga-tooltip={`进入标注模式 · ${enterShortcut()}`}
             on:click={() => props.onEnter()}
           >
-            标注
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
             <Show when={props.store.count() > 0}>
-              <span class="rga-badge">{props.store.count()}</span>
+              <span class="rga-count-dot">{props.store.count()}</span>
             </Show>
           </button>
         }

@@ -25,7 +25,7 @@ const renderAnnotation = (annotation: AnnotationRecord): string => {
   lines.push(`## #${annotation.number} — ${heading}`);
   lines.push("");
   if (chain.length > 0) {
-    lines.push("- 组件链（从内到外）。第一个是你标注的组件，通常就是要改的；其余是它的父级容器，供定位:");
+    lines.push("- 组件链（从内到外）:");
     chain.forEach((entry, index) => {
       // The first entry is the selected element. When its line is the
       // component's declaration (element wrapped by framer-motion/HOC, exact
