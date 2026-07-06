@@ -134,9 +134,12 @@ the child would resolve to the wrapper (e.g. `Tooltip`) instead of the component
 that authored it (e.g. `NavBarTabItem`). That's how React attributes ownership
 of `cloneElement`'d children — React DevTools shows the same.
 
-A built-in set is skipped automatically (`Tooltip`, `Popover`, `Popper`,
-`Dropdown`, `HoverCard`, `ContextMenu`, `Portal`, `Slot`, `Trigger`). Add your
-own to skip them too:
+A built-in set is skipped automatically — floating-ui / radix overlay wrappers
+(`Tooltip`, `Popover`, `Dropdown`, `HoverCard`, `ContextMenu`, `Portal`, `Slot`,
+`Trigger`, …), framer-motion internals (`AnimatePresence`, `PopChild`, …), and
+common base UI primitives that wrap/clone their children (`IconButton`,
+`Select`, `Tabs`, `DropdownMenu`, overflow-text helpers, …). Add your own to
+skip them too:
 
 ```tsx
 <ReactGrabAnnotate ignoreComponents={["MyTooltip", "WithPermission", "Field"]} />

@@ -61,6 +61,20 @@ const DEFAULT_IGNORED_COMPONENT_NAMES = [
   "LazyMotion",
   "MotionConfig",
   "Reorder",
+  // low-signal text wrappers that add an overflow-tooltip around their content
+  // (they wrap children in <Tooltip>, so they'd otherwise become the target)
+  "OverflowTooltip",
+  "OverflowText",
+  "EllipsisText",
+  // shared base UI primitives that wrap/clone their children (via a Tooltip or
+  // an asChild/Slot clone). React attributes the child to them, but they are
+  // never the code you'd want to edit — the feature component that uses them is.
+  "IconButton",
+  "Select",
+  "Tabs",
+  "DropdownMenu",
+  "DropdownMenuItem",
+  "InfiniteScroll",
 ];
 // Empty until a host opts in (annotate mode calls setIgnoredComponentNames), so
 // the base react-grab copy flow keeps its existing resolution behavior.
