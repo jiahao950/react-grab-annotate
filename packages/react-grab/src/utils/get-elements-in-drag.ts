@@ -251,12 +251,29 @@ export const getElementsInDrag = (
   dragRect: DragRect,
   isValidGrabbableElement: (element: Element) => boolean,
   shouldCheckCoverage = true,
+  isComponentRoot?: (element: Element) => boolean,
 ): Element[] => {
   const elements = filterElementsInDrag(dragRect, isValidGrabbableElement, shouldCheckCoverage);
+
+  // Without a component-root predicate (normal react-grab box select), keep the
+  // classic behavior: the outermost covered elements. The sibling/component
+  // resolution below is opt-in (annotate mode passes the predicate) so it never
+  // changes the base tool's selection semantics.
+  if (!isComponentRoot) return removeNestedElements(elements);
+
+  // Prefer the distinct component instances the box covers (e.g. several
+  // OptionItem rows). This is robust even when the repeated items are nested
+  // under different wrapper divs and so aren't DOM siblings. Only treat it as a
+  // multi-component selection when 2+ are covered — a single one falls through
+  // to the DOM logic below (its container may itself hold the sibling group).
+  const componentRoots = removeNestedElements(elements.filter(isComponentRoot));
+  if (componentRoots.length >= 2) return componentRoots;
+
   const outermost = removeNestedElements(elements);
   // A single outermost element means everything the box covered shares one
-  // container; expand it to the sibling group the user actually framed. Any
-  // other count is already a set of distinct siblings — leave it untouched.
+  // container; expand it to the sibling group the user actually framed (e.g. a
+  // row of chips rendered inline by one component). Any other count is already
+  // a set of distinct siblings — leave it untouched.
   if (outermost.length !== 1) return outermost;
   return expandToSiblingGroup(outermost[0], new Set(elements));
 };

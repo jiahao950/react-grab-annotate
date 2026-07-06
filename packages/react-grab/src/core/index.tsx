@@ -34,6 +34,7 @@ import {
   resolveSource,
   resolveComponentChain,
   setIgnoredComponentNames,
+  isComponentRootElement,
 } from "./context.js";
 import { isNextProjectRuntime } from "../utils/is-next-project-runtime.js";
 import { createNoopApi } from "./noop-api.js";
@@ -1096,9 +1097,12 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       if (!pointer) return [];
 
       const drag = calculateDragRectangle(pointer.x, pointer.y);
-      const elements = getElementsInDrag(drag, isValidGrabbableElement);
+      const componentRootPredicate = annotateOptions ? isComponentRootElement : undefined;
+      const elements = getElementsInDrag(drag, isValidGrabbableElement, true, componentRootPredicate);
       const previewElements =
-        elements.length > 0 ? elements : getElementsInDrag(drag, isValidGrabbableElement, false);
+        elements.length > 0
+          ? elements
+          : getElementsInDrag(drag, isValidGrabbableElement, false, componentRootPredicate);
 
       return previewElements.map((element) => createElementBounds(element));
     });
@@ -1898,11 +1902,22 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
       hasModifierKeyHeld: boolean,
       isShiftHeld: boolean,
     ) => {
-      const elements = getElementsInDrag(dragSelectionRect, isValidGrabbableElement);
+      const componentRootPredicate = annotateOptions ? isComponentRootElement : undefined;
+      const elements = getElementsInDrag(
+        dragSelectionRect,
+        isValidGrabbableElement,
+        true,
+        componentRootPredicate,
+      );
       const selectedElements =
         elements.length > 0
           ? elements
-          : getElementsInDrag(dragSelectionRect, isValidGrabbableElement, false);
+          : getElementsInDrag(
+              dragSelectionRect,
+              isValidGrabbableElement,
+              false,
+              componentRootPredicate,
+            );
 
       if (selectedElements.length === 0) return;
 

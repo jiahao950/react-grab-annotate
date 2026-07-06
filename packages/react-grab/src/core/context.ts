@@ -89,6 +89,24 @@ export const setIgnoredComponentNames = (names: readonly string[] = []): void =>
 const isIgnoredComponentName = (name: string | null | undefined): boolean =>
   Boolean(name) && ignoredComponentNames.has(name as string);
 
+// True when `element` is the root DOM node a component instance renders — i.e.
+// its fiber's parent is a component (not another host element). Used by box
+// selection to pick out the distinct component instances a drag covers (e.g. a
+// list of OptionItem rows), which is robust even when those rows sit under
+// different wrapper divs and so aren't DOM siblings. Transparent fibers
+// (Fragment, Provider) between the element and its component are skipped, but a
+// host-element parent means the element is nested inside another element's
+// output, so it is not a component root.
+export const isComponentRootElement = (element: Element): boolean => {
+  const fiber = getFiberFromHostInstance(element);
+  if (!fiber) return false;
+  let parent = fiber.return;
+  while (parent && typeof parent.type !== "string" && !isCompositeFiber(parent)) {
+    parent = parent.return;
+  }
+  return Boolean(parent) && typeof parent!.type !== "string" && isCompositeFiber(parent!);
+};
+
 // A composite fiber's display name, but only if it's a real, non-wrapper
 // component name worth attributing an element to.
 const usefulNonWrapperName = (fiber: Fiber | null | undefined): string | null => {
