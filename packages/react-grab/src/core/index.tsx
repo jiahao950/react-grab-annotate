@@ -2608,6 +2608,33 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
           if (isPromptMode() || isEventFromOverlay(event, "data-react-grab-ignore-events")) {
             return;
           }
+          // Enter opens the comment box on the currently hovered element —
+          // keyboard-driven annotation. This is the ONLY selection Enter does in
+          // annotate mode (never react-grab's copy/edit); the mark anchors at the
+          // pointer so it lands where the user is looking.
+          if (
+            (isEnterCode(event.code) || event.key === "Enter") &&
+            !event.repeat &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey
+          ) {
+            const point = pointer();
+            // Resolve the target with a live hit-test at the pointer (same as a
+            // click), falling back to the last detected/effective element.
+            const hovered =
+              getElementsAtPoint(point.x, point.y).find(isValidGrabbableElement) ??
+              (isElementConnected(store.detectedElement) ? store.detectedElement : null) ??
+              effectiveElement() ??
+              null;
+            if (hovered && !isRootElement(hovered)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              annotateAnchorPoint = { x: point.x, y: point.y, mode: "click" };
+              enterCommentModeForElement(hovered, point.x, point.y);
+            }
+            return;
+          }
           // Ignore any other key — no react-grab selection/navigation runs, but
           // the page keeps native keyboard behavior (scrolling).
           return;
