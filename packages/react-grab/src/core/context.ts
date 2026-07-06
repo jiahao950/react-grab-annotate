@@ -37,6 +37,44 @@ const isSourceComponentName = (name: string): boolean => {
 const toSourceComponentName = (name: string | null | undefined): string | null =>
   name && isSourceComponentName(name) ? name : null;
 
+// Transparent wrapper components skipped during resolution. A wrapper that
+// clones its child during its own render (floating-ui Tooltip/Popover, most
+// HOCs) becomes the element's React owner, so resolution would stop at it
+// instead of reaching the component that authored the element. Skipping these
+// lets both the label and the source location fall through to the real target.
+// @see AnnotateOptions.ignoreComponents
+const DEFAULT_IGNORED_COMPONENT_NAMES = [
+  "Tooltip",
+  "Popover",
+  "Popper",
+  "Dropdown",
+  "HoverCard",
+  "ContextMenu",
+  "Portal",
+  "Slot",
+  "Trigger",
+];
+// Empty until a host opts in (annotate mode calls setIgnoredComponentNames), so
+// the base react-grab copy flow keeps its existing resolution behavior.
+let ignoredComponentNames = new Set<string>();
+
+export const setIgnoredComponentNames = (names: readonly string[] = []): void => {
+  ignoredComponentNames = new Set<string>([...DEFAULT_IGNORED_COMPONENT_NAMES, ...names]);
+};
+
+const isIgnoredComponentName = (name: string | null | undefined): boolean =>
+  Boolean(name) && ignoredComponentNames.has(name as string);
+
+// A composite fiber's display name, but only if it's a real, non-wrapper
+// component name worth attributing an element to.
+const usefulNonWrapperName = (fiber: Fiber | null | undefined): string | null => {
+  if (!fiber || !isCompositeFiber(fiber)) return null;
+  const displayName = getDisplayName(fiber.type);
+  if (!displayName || !isUsefulComponentName(displayName)) return null;
+  if (isIgnoredComponentName(displayName)) return null;
+  return displayName;
+};
+
 const findNearestFiberElement = (element: Element): Element => {
   if (!isInstrumentationActive()) return element;
   let current: Element | null = element;
@@ -141,6 +179,13 @@ export interface ResolvedSource extends SourceLocation {
 }
 
 const pickSourceFrame = (frames: StackFrame[]): StackFrame | null => {
+  // Prefer a real (non-wrapper) named frame, so a Tooltip/HOC frame at the top
+  // of the owner stack doesn't win over the component that authored the element.
+  const realFrame = frames.find((frame) => {
+    const name = toSourceComponentName(frame.functionName);
+    return name !== null && !isIgnoredComponentName(name);
+  });
+  if (realFrame) return realFrame;
   const namedFrame = frames.find((frame) => Boolean(toSourceComponentName(frame.functionName)));
   return namedFrame ?? frames[0] ?? null;
 };
@@ -148,6 +193,32 @@ const pickSourceFrame = (frames: StackFrame[]): StackFrame | null => {
 const getSourceComponentName = (fiber: Fiber | undefined): string | null => {
   if (!fiber || !isCompositeFiber(fiber)) return null;
   return toSourceComponentName(getDisplayName(fiber.type));
+};
+
+// The component that AUTHORED the element's JSX (`_debugOwner`), as opposed to
+// the component it renders UNDER (`fiber.return`). These differ when a wrapper
+// clones its child during its own render — floating-ui's Tooltip/Popover, and
+// most HOCs. In the fiber (return) tree the element sits under the wrapper, so a
+// return-walk resolves to `Tooltip`; but React records the real author on
+// `_debugOwner` (cloneElement preserves it), so an owner-walk resolves to the
+// component the user actually means (e.g. `NavBarTabItem`). This is the correct
+// target for both the label and the saved source location.
+const walkOwnerChain = (start: Fiber | null | undefined): Fiber | null => {
+  const seen = new Set<Fiber>();
+  let owner = (start as { _debugOwner?: Fiber } | null | undefined)?._debugOwner;
+  while (owner && !seen.has(owner)) {
+    seen.add(owner);
+    if (usefulNonWrapperName(owner)) return owner;
+    owner = (owner as { _debugOwner?: Fiber })._debugOwner;
+  }
+  return null;
+};
+
+const getOwnerFiber = (fiber: Fiber | null | undefined): Fiber | null => {
+  // `_debugOwner` may be recorded on only one of the two fiber alternates
+  // (current vs work-in-progress); getFiberFromHostInstance can hand back either
+  // depending on timing, so consult both.
+  return walkOwnerChain(fiber) ?? walkOwnerChain((fiber as { alternate?: Fiber } | null)?.alternate);
 };
 
 // getSource reads React's own dev-only debug data, so it works without bippy
@@ -216,15 +287,50 @@ export const selectResolvedSource = (
   return null;
 };
 
-export const resolveSource = async (element: Element): Promise<ResolvedSource | null> => {
-  const fiberSource = await getCachedFiberSource(element);
-  if (fiberSource?.origin === "app") return fiberSource;
-
-  return selectResolvedSource(fiberSource, (await getStack(element)) ?? []);
+// The component that authored the element's JSX, per `_debugOwner`, skipping
+// wrapper components. Sync + cheap — no source fetch.
+const getOwnerComponentName = (element: Element): string | null => {
+  if (!isInstrumentationActive()) return null;
+  const ownerFiber = getOwnerFiber(getFiberFromHostInstance(findNearestFiberElement(element)));
+  return ownerFiber ? usefulNonWrapperName(ownerFiber) : null;
 };
 
-export const getComponentDisplayName = (element: Element): string | null =>
-  getComponentNamesFromFiber(findNearestFiberElement(element), 1)[0] ?? null;
+export const resolveSource = async (element: Element): Promise<ResolvedSource | null> => {
+  const fiberSource = await getCachedFiberSource(element);
+
+  // A cloneElement wrapper (floating-ui Tooltip/Popover, most HOCs) renders the
+  // element under itself and becomes its React owner, so both the fiber source
+  // and the top of the owner stack name the wrapper (e.g. Tooltip.tsx). When the
+  // resolved source is one of those wrappers, fall through to the owner stack —
+  // pickSourceFrame now skips wrapper frames — so the file:line lands on the
+  // component that authored the element (e.g. NavBarTabItem).
+  const fiberSourceIsWrapper = isIgnoredComponentName(fiberSource?.componentName);
+  if (!fiberSourceIsWrapper && fiberSource?.origin === "app") return fiberSource;
+
+  const resolvedFromStack = selectResolvedSource(
+    fiberSourceIsWrapper ? null : fiberSource,
+    (await getStack(element)) ?? [],
+  );
+  if (resolvedFromStack) return resolvedFromStack;
+
+  // Last resort: name the JSX author even if we couldn't place its file:line.
+  const ownerName = getOwnerComponentName(element);
+  if (ownerName && fiberSourceIsWrapper) {
+    return { filePath: "", lineNumber: null, columnNumber: null, componentName: ownerName, origin: "app" };
+  }
+  return fiberSourceIsWrapper ? null : fiberSource;
+};
+
+export const getComponentDisplayName = (element: Element): string | null => {
+  const fiberElement = findNearestFiberElement(element);
+  // Prefer the JSX author (skips clone-wrapper components like Tooltip); fall
+  // back to the render-nesting walk when no owner is recorded (production, or
+  // host nodes with no owner metadata).
+  const ownerFiber = getOwnerFiber(getFiberFromHostInstance(fiberElement));
+  const ownerName = ownerFiber ? getDisplayName(ownerFiber.type) : null;
+  if (ownerName && isUsefulComponentName(ownerName)) return ownerName;
+  return getComponentNamesFromFiber(fiberElement, 1)[0] ?? null;
+};
 
 export interface StackContextOptions {
   maxLines?: number;
@@ -245,11 +351,9 @@ const getComponentNamesFromFiber = (element: Element, maxCount: number): string[
     fiber,
     (currentFiber) => {
       if (componentNames.length >= maxCount) return true;
-      if (isCompositeFiber(currentFiber)) {
-        const displayName = getDisplayName(currentFiber.type);
-        if (displayName && isUsefulComponentName(displayName)) {
-          componentNames.push(displayName);
-        }
+      const displayName = usefulNonWrapperName(currentFiber);
+      if (displayName) {
+        componentNames.push(displayName);
       }
       return false;
     },

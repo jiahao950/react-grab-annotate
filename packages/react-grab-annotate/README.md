@@ -124,6 +124,23 @@ Run `pnpm dev` and you're set.
 | --- | --- | --- | --- |
 | `serverUrl` | `string` | `http://localhost:5179` | Where the local server listens. |
 | `enabled` | `boolean` | `true` | Escape hatch; prefer not rendering it instead. |
+| `ignoreComponents` | `string[]` | `[]` | Component names to treat as transparent wrappers — see below. |
+
+#### Transparent wrappers (`ignoreComponents`)
+
+Shared components that clone their child during render (floating-ui
+`Tooltip`/`Popover`, most HOCs) become that child's React *owner*, so selecting
+the child would resolve to the wrapper (e.g. `Tooltip`) instead of the component
+that authored it (e.g. `NavBarTabItem`). That's how React attributes ownership
+of `cloneElement`'d children — React DevTools shows the same.
+
+A built-in set is skipped automatically (`Tooltip`, `Popover`, `Popper`,
+`Dropdown`, `HoverCard`, `ContextMenu`, `Portal`, `Slot`, `Trigger`). Add your
+own to skip them too:
+
+```tsx
+<ReactGrabAnnotate ignoreComponents={["MyTooltip", "WithPermission", "Field"]} />
+```
 
 ### `startAnnotate(options?)` (browser, non-React hosts)
 

@@ -32,6 +32,7 @@ import {
   getNearestComponentName,
   getComponentDisplayName,
   resolveSource,
+  setIgnoredComponentNames,
 } from "./context.js";
 import { isNextProjectRuntime } from "../utils/is-next-project-runtime.js";
 import { createNoopApi } from "./noop-api.js";
@@ -4061,6 +4062,10 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
     }
 
     if (annotateOptions) {
+      // Treat the configured (and a built-in set of) wrapper components as
+      // transparent so selection resolves to the component that authored the
+      // element rather than a Tooltip/Popover/HOC that cloned it.
+      setIgnoredComponentNames(annotateOptions.ignoreComponents ?? []);
       annotateController = createAnnotateController(api, annotateOptions);
       const controller = annotateController;
       createEffect(() => {

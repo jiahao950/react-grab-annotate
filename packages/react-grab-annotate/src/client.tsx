@@ -8,6 +8,15 @@ export interface ReactGrabAnnotateOptions {
    * @default "http://localhost:5179"
    */
   serverUrl?: string;
+  /**
+   * Component names to treat as transparent wrappers. Some shared components
+   * (floating-ui Tooltip/Popover, most HOCs) clone their child during render and
+   * become its React owner, so selecting the child would resolve to the wrapper
+   * (e.g. `Tooltip`) instead of the component that authored it (e.g.
+   * `NavBarTabItem`). List your wrapper components here to skip them; merged with
+   * a built-in set of common ones (Tooltip, Popover, Dropdown, …).
+   */
+  ignoreComponents?: string[];
 }
 
 export interface AnnotateHandle {
@@ -24,7 +33,12 @@ export const startAnnotate = (options: ReactGrabAnnotateOptions = {}): AnnotateH
 
   void import("react-grab/core").then(({ init }) => {
     if (disposed) return;
-    api = init({ annotate: { serverUrl: options.serverUrl ?? DEFAULT_SERVER_URL } });
+    api = init({
+      annotate: {
+        serverUrl: options.serverUrl ?? DEFAULT_SERVER_URL,
+        ignoreComponents: options.ignoreComponents,
+      },
+    });
   });
 
   return {
@@ -59,12 +73,17 @@ export interface ReactGrabAnnotateProps extends ReactGrabAnnotateOptions {
 export const ReactGrabAnnotate = (props: ReactGrabAnnotateProps): null => {
   const serverUrl = props.serverUrl;
   const enabled = props.enabled;
+  // Stable key so an inline array literal doesn't restart the tool every render.
+  const ignoreKey = props.ignoreComponents ? props.ignoreComponents.join(",") : "";
 
   useEffect(() => {
     if (enabled === false) return;
-    const handle = startAnnotate({ serverUrl });
+    const handle = startAnnotate({
+      serverUrl,
+      ignoreComponents: ignoreKey ? ignoreKey.split(",") : undefined,
+    });
     return () => handle.dispose();
-  }, [serverUrl, enabled]);
+  }, [serverUrl, enabled, ignoreKey]);
 
   return null;
 };

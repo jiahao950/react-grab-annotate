@@ -144,6 +144,17 @@ export interface AnnotateOptions {
    * the user enters annotation mode.
    */
   sessionId?: string;
+  /**
+   * Component names to treat as transparent wrappers when resolving what the
+   * user selected. A wrapper that clones its child during its own render
+   * (floating-ui Tooltip/Popover, many HOCs) becomes the element's React owner,
+   * so selection would resolve to the wrapper (e.g. `Tooltip`) instead of the
+   * component that actually authored the element (e.g. `NavBarTabItem`). Names
+   * listed here are skipped, so both the label and the saved source location
+   * point at the real component. Merged with a built-in set of common wrapper
+   * names. Matched exactly against the component's display name.
+   */
+  ignoreComponents?: string[];
 }
 
 export type OverlayDismissSource = "keyboard" | "pointer";

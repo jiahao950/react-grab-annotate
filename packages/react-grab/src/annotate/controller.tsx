@@ -189,7 +189,10 @@ export const createAnnotateController = (
     store.patch(id, {
       filePath: source?.filePath ?? "",
       lineNumber: source?.lineNumber ?? null,
-      componentName: source?.componentName ?? api.getDisplayName(element),
+      // Prefer the resolved JSX-author name (getDisplayName reads `_debugOwner`,
+      // which sees through clone-wrapper components like Tooltip) over the source
+      // frame's name, which can be captured by the wrapper.
+      componentName: api.getDisplayName(element) ?? source?.componentName ?? null,
       screenshotDataUrl,
       screenshotFile,
     });

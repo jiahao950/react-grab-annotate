@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, cloneElement, type ReactElement } from "react";
 import { PerfGrid } from "./perf-grid";
 
 interface Todo {
@@ -677,6 +677,28 @@ const TooltipSection = () => {
   );
 };
 
+// Mimics floating-ui/Tooltip: a wrapper that clones its child DURING ITS OWN
+// render (adding props/ref). React then attributes the child's ownership/source
+// to this wrapper, so react-grab resolves the element to `CloneTooltip` instead
+// of the semantic author (`WrappedNavItem`). Repro for the component-addressing
+// bug.
+const CloneTooltip = ({ children }: { children: ReactElement<any> }) => {
+  return cloneElement(children, { "data-clone-wrapped": "true" });
+};
+
+const WrappedNavItem = () => {
+  return (
+    <CloneTooltip>
+      <div
+        data-testid="wrapped-nav-item"
+        className="p-3 bg-emerald-100 rounded inline-block"
+      >
+        Wrapped nav item (expect WrappedNavItem, not CloneTooltip)
+      </div>
+    </CloneTooltip>
+  );
+};
+
 const usePerfGridConfig = (): { rowCount: number; columnCount: number } | null => {
   if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
@@ -775,6 +797,8 @@ export default function App() {
       <ScrollableSection />
 
       <TooltipSection />
+
+      <WrappedNavItem />
 
       <DynamicElements />
 
