@@ -1,9 +1,16 @@
+export interface ComponentChainEntry {
+  name: string;
+  filePath: string | null;
+  lineNumber: number | null;
+}
+
 export interface AnnotationRecord {
   number: number;
   comment: string;
   filePath: string;
   lineNumber: number | null;
   componentName: string | null;
+  componentChain?: ComponentChainEntry[];
   tagName: string | null;
   selector: string;
   url: string;

@@ -416,6 +416,12 @@ export interface SourceInfo {
   componentName: string | null;
 }
 
+export interface ComponentChainEntry {
+  name: string;
+  filePath: string | null;
+  lineNumber: number | null;
+}
+
 export interface ToolbarState {
   edge: "top" | "bottom" | "left" | "right";
   ratio: number;
@@ -444,6 +450,7 @@ export interface ReactGrabAPI {
   dispose: () => void;
   copyElement: (elements: Element | Element[]) => Promise<boolean>;
   getSource: (element: Element) => Promise<SourceInfo | null>;
+  getComponentChain: (element: Element) => Promise<ComponentChainEntry[]>;
   getStackContext: (element: Element) => Promise<string>;
   getState: () => ReactGrabState;
   setOptions: (options: SettableOptions) => void;

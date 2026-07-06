@@ -258,11 +258,20 @@ const getOwnerFiber = (fiber: Fiber | null | undefined): Fiber | null => {
 // both compete for the same connection pool and neither has its own timeout.
 const getFiberSource = (element: Element): Promise<ResolvedSource | null> =>
   runQueuedSourceFetch(async (signal) => {
-    const fiber = getFiberFromHostInstance(findNearestFiberElement(element));
-    if (!fiber) return null;
+    const hostFiber = getFiberFromHostInstance(findNearestFiberElement(element));
+    if (!hostFiber) return null;
+
+    // Resolve the source of the component that AUTHORED the element (its
+    // `_debugOwner`, skipping wrappers) rather than the host fiber. getSource is
+    // source-mapped to the real .tsx, so this yields the right component's file
+    // AND a real path — e.g. GeneralView.tsx, not the SimpleBar it renders in,
+    // and not an unsymbolicated bundle chunk. The name comes from the same owner
+    // so the label and the source always agree.
+    const ownerFiber = getOwnerFiber(hostFiber);
+    const targetFiber = ownerFiber ?? hostFiber;
 
     try {
-      const source = await getSource(fiber, true, createSourceFetch(signal));
+      const source = await getSource(targetFiber, true, createSourceFetch(signal));
       if (!source?.fileName) return null;
 
       return {
@@ -270,7 +279,9 @@ const getFiberSource = (element: Element): Promise<ResolvedSource | null> =>
         lineNumber: source.lineNumber ?? null,
         columnNumber: source.columnNumber ?? null,
         componentName:
-          toSourceComponentName(source.functionName) ?? getSourceComponentName(fiber._debugOwner),
+          getSourceComponentName(ownerFiber ?? undefined) ??
+          toSourceComponentName(source.functionName) ??
+          getSourceComponentName(hostFiber._debugOwner),
         origin: classifySourcePath(source.fileName).origin,
       };
     } catch {
@@ -318,38 +329,72 @@ export const selectResolvedSource = (
   return null;
 };
 
-// The component that authored the element's JSX, per `_debugOwner`, skipping
-// wrapper components. Sync + cheap — no source fetch.
-const getOwnerComponentName = (element: Element): string | null => {
-  if (!isInstrumentationActive()) return null;
-  const ownerFiber = getOwnerFiber(getFiberFromHostInstance(findNearestFiberElement(element)));
-  return ownerFiber ? usefulNonWrapperName(ownerFiber) : null;
+export interface ComponentChainEntry {
+  name: string;
+  filePath: string | null;
+  lineNumber: number | null;
+}
+
+// The chain of components that authored the element, outermost feature first
+// (…GeneralView › OptionsDialogContentSimpleBar › OptionItem). Single-component
+// resolution is inherently ambiguous — React doesn't say which owner is "the"
+// feature component — so we hand the AI the whole chain (each with its real
+// .tsx via getSource) and let it pick the right file. Wrappers are NOT filtered
+// here: seeing them is part of the context.
+export const resolveComponentChain = async (element: Element): Promise<ComponentChainEntry[]> => {
+  if (!isInstrumentationActive()) return [];
+  const hostFiber = getFiberFromHostInstance(findNearestFiberElement(element));
+  if (!hostFiber) return [];
+
+  const ownerFibers: Fiber[] = [];
+  const seenFibers = new Set<Fiber>();
+  let owner =
+    (hostFiber as { _debugOwner?: Fiber })._debugOwner ??
+    (hostFiber as { alternate?: { _debugOwner?: Fiber } }).alternate?._debugOwner;
+  while (owner && ownerFibers.length < 6 && !seenFibers.has(owner)) {
+    seenFibers.add(owner);
+    if (usefulNonWrapperName(owner) ?? getSourceComponentName(owner)) {
+      ownerFibers.push(owner);
+    }
+    owner = (owner as { _debugOwner?: Fiber })._debugOwner;
+  }
+  if (ownerFibers.length === 0) return [];
+
+  return runQueuedSourceFetch(async (signal) => {
+    const entries: ComponentChainEntry[] = [];
+    const seenKeys = new Set<string>();
+    for (const fiber of ownerFibers) {
+      const name = getSourceComponentName(fiber);
+      if (!name) continue;
+      let filePath: string | null = null;
+      let lineNumber: number | null = null;
+      try {
+        const source = await getSource(fiber, true, createSourceFetch(signal));
+        if (source?.fileName) {
+          filePath = normalizeFilePath(source.fileName);
+          lineNumber = source.lineNumber ?? null;
+        }
+      } catch {
+        // keep the name even if the location couldn't be resolved
+      }
+      const key = `${name}@${filePath ?? ""}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      entries.push({ name, filePath, lineNumber });
+    }
+    return entries;
+  }, []);
 };
 
 export const resolveSource = async (element: Element): Promise<ResolvedSource | null> => {
+  // getFiberSource already resolves from the element's authoring component
+  // (_debugOwner, skipping wrappers) and is source-mapped to the real .tsx, so
+  // an app-origin hit is the answer. Only fall back to the owner stack when the
+  // fiber source is missing or not app code.
   const fiberSource = await getCachedFiberSource(element);
+  if (fiberSource?.origin === "app") return fiberSource;
 
-  // A cloneElement wrapper (floating-ui Tooltip/Popover, most HOCs) renders the
-  // element under itself and becomes its React owner, so both the fiber source
-  // and the top of the owner stack name the wrapper (e.g. Tooltip.tsx). When the
-  // resolved source is one of those wrappers, fall through to the owner stack —
-  // pickSourceFrame now skips wrapper frames — so the file:line lands on the
-  // component that authored the element (e.g. NavBarTabItem).
-  const fiberSourceIsWrapper = isIgnoredComponentName(fiberSource?.componentName);
-  if (!fiberSourceIsWrapper && fiberSource?.origin === "app") return fiberSource;
-
-  const resolvedFromStack = selectResolvedSource(
-    fiberSourceIsWrapper ? null : fiberSource,
-    (await getStack(element)) ?? [],
-  );
-  if (resolvedFromStack) return resolvedFromStack;
-
-  // Last resort: name the JSX author even if we couldn't place its file:line.
-  const ownerName = getOwnerComponentName(element);
-  if (ownerName && fiberSourceIsWrapper) {
-    return { filePath: "", lineNumber: null, columnNumber: null, componentName: ownerName, origin: "app" };
-  }
-  return fiberSourceIsWrapper ? null : fiberSource;
+  return selectResolvedSource(fiberSource, (await getStack(element)) ?? []);
 };
 
 export const getComponentDisplayName = (element: Element): string | null => {

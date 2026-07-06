@@ -7,6 +7,12 @@ export interface AnnotateAnchor {
   relativeY: number;
 }
 
+export interface ComponentChainEntry {
+  name: string;
+  filePath: string | null;
+  lineNumber: number | null;
+}
+
 export interface Annotation {
   id: string;
   number: number;
@@ -14,6 +20,7 @@ export interface Annotation {
   filePath: string;
   lineNumber: number | null;
   componentName: string | null;
+  componentChain: ComponentChainEntry[];
   tagName: string | null;
   selector: string;
   url: string;
@@ -29,6 +36,7 @@ export interface AnnotationRecord {
   filePath: string;
   lineNumber: number | null;
   componentName: string | null;
+  componentChain: ComponentChainEntry[];
   tagName: string | null;
   selector: string;
   url: string;

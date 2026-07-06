@@ -32,6 +32,7 @@ import {
   getNearestComponentName,
   getComponentDisplayName,
   resolveSource,
+  resolveComponentChain,
   setIgnoredComponentNames,
 } from "./context.js";
 import { isNextProjectRuntime } from "../utils/is-next-project-runtime.js";
@@ -4023,6 +4024,7 @@ export const init = (rawOptions?: Options): ReactGrabAPI => {
           componentName: source.componentName,
         };
       },
+      getComponentChain: (element: Element) => resolveComponentChain(element),
       getStackContext: (element: Element) =>
         getStackContext(element, { maxLines: pluginRegistry.store.options.maxContextLines }),
       getState: (): ReactGrabState => ({

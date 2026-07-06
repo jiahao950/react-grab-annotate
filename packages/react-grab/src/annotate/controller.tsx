@@ -55,6 +55,7 @@ const toRecord = (annotation: Annotation): AnnotationRecord => ({
   filePath: annotation.filePath,
   lineNumber: annotation.lineNumber,
   componentName: annotation.componentName,
+  componentChain: annotation.componentChain,
   tagName: annotation.tagName,
   selector: annotation.selector,
   url: annotation.url,
@@ -180,8 +181,9 @@ export const createAnnotateController = (
     region: CommentSubmitInput["region"],
   ): Promise<void> => {
     const number = store.annotations.find((entry) => entry.id === id)?.number;
-    const [source, screenshotDataUrl] = await Promise.all([
+    const [source, componentChain, screenshotDataUrl] = await Promise.all([
       api.getSource(element).catch(() => null),
+      api.getComponentChain(element).catch(() => []),
       region ? captureRegionPng(region) : captureElementPng(element),
     ]);
 
@@ -189,10 +191,13 @@ export const createAnnotateController = (
     store.patch(id, {
       filePath: source?.filePath ?? "",
       lineNumber: source?.lineNumber ?? null,
-      // Prefer the resolved JSX-author name (getDisplayName reads `_debugOwner`,
-      // which sees through clone-wrapper components like Tooltip) over the source
-      // frame's name, which can be captured by the wrapper.
-      componentName: api.getDisplayName(element) ?? source?.componentName ?? null,
+      // Take the name from the SAME resolution as the file (resolveSource, which
+      // now resolves both from the element's `_debugOwner` author). Using the
+      // sync getDisplayName here instead would let the name and the file:line
+      // disagree (e.g. name OptionItem, file OptionsDialogContentSimpleBar.tsx).
+      // Fall back to the sync name only when source resolution failed.
+      componentName: source?.componentName ?? api.getDisplayName(element) ?? null,
+      componentChain,
       screenshotDataUrl,
       screenshotFile,
     });
@@ -226,6 +231,7 @@ export const createAnnotateController = (
       filePath: "",
       lineNumber: null,
       componentName: api.getDisplayName(element),
+      componentChain: [],
       tagName: element.tagName.toLowerCase(),
       selector: createElementSelector(element),
       url: window.location.href,

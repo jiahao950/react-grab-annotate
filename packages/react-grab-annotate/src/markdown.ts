@@ -1,4 +1,4 @@
-import type { AnnotationRecord } from "./types.js";
+import type { AnnotationRecord, ComponentChainEntry } from "./types.js";
 
 const formatSourceLocation = (annotation: AnnotationRecord): string => {
   if (!annotation.filePath) return "(未知)";
@@ -6,12 +6,31 @@ const formatSourceLocation = (annotation: AnnotationRecord): string => {
   return `${annotation.filePath}:${annotation.lineNumber}`;
 };
 
+const formatChainLocation = (entry: ComponentChainEntry): string => {
+  if (!entry.filePath) return "(位置未知)";
+  return entry.lineNumber === null ? entry.filePath : `${entry.filePath}:${entry.lineNumber}`;
+};
+
 const renderAnnotation = (annotation: AnnotationRecord): string => {
-  const heading = annotation.componentName || annotation.tagName || "元素";
+  // Outermost feature component first — usually the code to edit; inner entries
+  // are the base/layout components it renders through. React can't say which one
+  // is "the" component, so we list the whole chain and let the reader pick.
+  const chain = [...(annotation.componentChain ?? [])].reverse();
+  const heading =
+    chain.length > 0
+      ? chain.map((entry) => entry.name).join(" › ")
+      : annotation.componentName || annotation.tagName || "元素";
   const lines: string[] = [];
   lines.push(`## #${annotation.number} — ${heading}`);
   lines.push("");
-  lines.push(`- 源码位置: \`${formatSourceLocation(annotation)}\``);
+  if (chain.length > 0) {
+    lines.push("- 组件链（从外到内，优先改最外层的业务组件）:");
+    for (const entry of chain) {
+      lines.push(`  - ${entry.name} — \`${formatChainLocation(entry)}\``);
+    }
+  } else {
+    lines.push(`- 源码位置: \`${formatSourceLocation(annotation)}\``);
+  }
   if (annotation.selector) {
     lines.push(`- 选择器: \`${annotation.selector}\``);
   }

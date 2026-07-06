@@ -16,6 +16,7 @@ export const createNoopApi = (): ReactGrabAPI => ({
   dispose: NOOP,
   copyElement: () => Promise.resolve(false),
   getSource: () => Promise.resolve(null),
+  getComponentChain: () => Promise.resolve([]),
   getStackContext: () => Promise.resolve(""),
   getState: () => ({
     isActive: false,
