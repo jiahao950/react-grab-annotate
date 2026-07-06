@@ -195,8 +195,10 @@ export const createAnnotateController = (
       // now resolves both from the element's `_debugOwner` author). Using the
       // sync getDisplayName here instead would let the name and the file:line
       // disagree (e.g. name OptionItem, file OptionsDialogContentSimpleBar.tsx).
-      // Fall back to the sync name only when source resolution failed.
-      componentName: source?.componentName ?? api.getDisplayName(element) ?? null,
+      // The innermost feature component in the chain is the selected thing;
+      // fall back to the resolved source / sync name when there's no chain.
+      componentName:
+        componentChain[0]?.name ?? source?.componentName ?? api.getDisplayName(element) ?? null,
       componentChain,
       screenshotDataUrl,
       screenshotFile,

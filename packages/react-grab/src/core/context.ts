@@ -54,6 +54,8 @@ const DEFAULT_IGNORED_COMPONENT_NAMES = [
   "Portal",
   "Slot",
   "Trigger",
+  "PopoverChild",
+  "PopoverShell",
   // framer-motion / motion (AnimatePresence internals clone their child too)
   "PopChild",
   "PopChildMeasure",
@@ -335,12 +337,13 @@ export interface ComponentChainEntry {
   lineNumber: number | null;
 }
 
-// The chain of components that authored the element, outermost feature first
-// (…GeneralView › OptionsDialogContentSimpleBar › OptionItem). Single-component
+// The chain of feature components that authored the element, INNERMOST first
+// (LanguageSelector › GeneralView › OptionsDialogContent › …). Single-component
 // resolution is inherently ambiguous — React doesn't say which owner is "the"
-// feature component — so we hand the AI the whole chain (each with its real
-// .tsx via getSource) and let it pick the right file. Wrappers are NOT filtered
-// here: seeing them is part of the context.
+// feature component — so we hand the AI the chain and let it pick. Base-UI
+// wrappers (Popover/Tooltip/OptionItem/framer-motion, per the ignore set) are
+// filtered OUT, so the innermost remaining entry is the specific component the
+// user selected (e.g. LanguageSelector), and the rest are its containers.
 export const resolveComponentChain = async (element: Element): Promise<ComponentChainEntry[]> => {
   if (!isInstrumentationActive()) return [];
   const hostFiber = getFiberFromHostInstance(findNearestFiberElement(element));
@@ -353,7 +356,7 @@ export const resolveComponentChain = async (element: Element): Promise<Component
     (hostFiber as { alternate?: { _debugOwner?: Fiber } }).alternate?._debugOwner;
   while (owner && ownerFibers.length < 6 && !seenFibers.has(owner)) {
     seenFibers.add(owner);
-    if (usefulNonWrapperName(owner) ?? getSourceComponentName(owner)) {
+    if (usefulNonWrapperName(owner)) {
       ownerFibers.push(owner);
     }
     owner = (owner as { _debugOwner?: Fiber })._debugOwner;

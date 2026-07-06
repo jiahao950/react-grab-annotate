@@ -12,19 +12,20 @@ const formatChainLocation = (entry: ComponentChainEntry): string => {
 };
 
 const renderAnnotation = (annotation: AnnotationRecord): string => {
-  // Outermost feature component first — usually the code to edit; inner entries
-  // are the base/layout components it renders through. React can't say which one
-  // is "the" component, so we list the whole chain and let the reader pick.
-  const chain = [...(annotation.componentChain ?? [])].reverse();
+  // Innermost feature component first — that's the specific thing the user
+  // selected (e.g. LanguageSelector) and usually the code to edit; the rest are
+  // its parent containers, for locating it. Base-UI wrappers are already
+  // filtered out upstream, so the first entry is a real feature component.
+  const chain = annotation.componentChain ?? [];
   const heading =
     chain.length > 0
-      ? chain.map((entry) => entry.name).join(" › ")
+      ? chain[0].name
       : annotation.componentName || annotation.tagName || "元素";
   const lines: string[] = [];
   lines.push(`## #${annotation.number} — ${heading}`);
   lines.push("");
   if (chain.length > 0) {
-    lines.push("- 组件链（从外到内，优先改最外层的业务组件）:");
+    lines.push("- 组件链（从内到外）。第一个是你标注的组件，通常就是要改的；其余是它的父级容器，供定位:");
     for (const entry of chain) {
       lines.push(`  - ${entry.name} — \`${formatChainLocation(entry)}\``);
     }
