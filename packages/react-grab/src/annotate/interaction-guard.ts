@@ -45,12 +45,15 @@ const PRESS_EVENTS = ["mousedown", "mouseup", "dblclick", "auxclick"] as const;
 // focusin stops the reference element from opening on tap-focus.
 const FOCUS_EVENTS = ["focusin", "focusout"] as const;
 
-// Touch is the mobile equivalent of the press/hover paths. These are handled
-// specially — see `guardTouch`: we must NOT preventDefault or native scrolling
-// of the touched element breaks; stopping propagation alone keeps the page's
-// own touch handlers (which open tooltips) from firing while the browser still
-// scrolls on touchmove.
-const TOUCH_EVENTS = ["touchstart", "touchend", "touchcancel"] as const;
+// Events stopped WITHOUT preventDefault — see `guardTouch`. Touch must not be
+// prevented or native scrolling breaks. `mousemove` must not be prevented
+// either, but it MUST be stopped: floating-ui's useHover opens a tooltip on
+// mouse-move over the reference (its `move` option, on by default), so blocking
+// only enter/over lets the tooltip slip through on the first move and — because
+// the matching leave is blocked too — pile up and never dismiss. react-grab
+// tracks the pointer via `pointermove` (not `mousemove`), so stopping the legacy
+// `mousemove` is safe for its own hit-testing.
+const STOP_ONLY_EVENTS = ["touchstart", "touchend", "touchcancel", "mousemove"] as const;
 
 const fromOverlay = (event: Event): boolean =>
   isEventFromOverlay(event, "data-react-grab-ignore-events");
@@ -80,7 +83,7 @@ export const installAnnotateInteractionGuard = (): void => {
   for (const type of PREVENTABLE_EVENTS) {
     document.addEventListener(type, guard, true);
   }
-  for (const type of TOUCH_EVENTS) {
+  for (const type of STOP_ONLY_EVENTS) {
     // passive:false so stopImmediatePropagation is honored; we still never
     // preventDefault, so scrolling is unaffected.
     document.addEventListener(type, guardTouch, { capture: true, passive: false });
@@ -93,7 +96,7 @@ export const removeAnnotateInteractionGuard = (): void => {
   for (const type of PREVENTABLE_EVENTS) {
     document.removeEventListener(type, guard, true);
   }
-  for (const type of TOUCH_EVENTS) {
+  for (const type of STOP_ONLY_EVENTS) {
     document.removeEventListener(type, guardTouch, true);
   }
 };
