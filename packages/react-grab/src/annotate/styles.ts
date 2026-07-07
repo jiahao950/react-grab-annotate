@@ -174,6 +174,15 @@ export const ANNOTATE_STYLES = `
   font-weight: 700;
 }
 
+.rga-highlight {
+  position: fixed;
+  background: color-mix(in srgb, var(--rga-accent) 16%, transparent);
+  border: 2px solid var(--rga-accent);
+  border-radius: 3px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
 .rga-mark {
   position: fixed;
   width: var(--rga-mark-size, 24px);

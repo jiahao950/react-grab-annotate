@@ -1,5 +1,4 @@
-import { createMemo, createSignal, Show, type Accessor, type Component } from "solid-js";
-import { isElementConnected } from "../../utils/is-element-connected.js";
+import { createMemo, createSignal, Show, type Component } from "solid-js";
 import {
   ANNOTATE_CARD_OFFSET_PX,
   ANNOTATE_CARD_VIEWPORT_MARGIN_PX,
@@ -9,7 +8,6 @@ import type { Annotation } from "../types.js";
 
 interface MarkCardProps {
   annotation: Annotation;
-  version: Accessor<number>;
   onSave: (comment: string) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -27,13 +25,10 @@ export const MarkCard: Component<MarkCardProps> = (props) => {
   let cardRef: HTMLDivElement | undefined;
 
   const position = createMemo(() => {
-    props.version();
-    const { element, relativeX, relativeY } = props.annotation.anchor;
-    const rect = isElementConnected(element)
-      ? element.getBoundingClientRect()
-      : new DOMRect(window.innerWidth / 2, window.innerHeight / 2, 0, 0);
-    const anchorX = rect.left + relativeX * rect.width;
-    const anchorY = rect.top + relativeY * rect.height;
+    // Pinned to the mark's fixed creation position — no element dependency, so
+    // the card opens in the right place even after the anchored node unmounts.
+    const anchorX = props.annotation.anchor.x;
+    const anchorY = props.annotation.anchor.y;
 
     const margin = ANNOTATE_CARD_VIEWPORT_MARGIN_PX;
     const maxLeft = window.innerWidth - ANNOTATE_CARD_WIDTH_PX - margin;

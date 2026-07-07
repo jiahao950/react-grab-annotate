@@ -1,6 +1,5 @@
 import { createMemo, For, Show, type Component } from "solid-js";
 import type { AnnotateStore } from "../store.js";
-import { createViewportTicker } from "../viewport-ticker.js";
 import { AnnotateToolbar } from "./annotate-toolbar.js";
 import { Mark } from "./mark.js";
 import { MarkCard } from "./mark-card.js";
@@ -15,7 +14,6 @@ export interface AnnotateOverlayProps {
 }
 
 export const AnnotateOverlay: Component<AnnotateOverlayProps> = (props) => {
-  const version = createViewportTicker(() => props.store.annotations.length > 0);
   const activeAnnotation = createMemo(() =>
     props.store.annotations.find((entry) => entry.id === props.store.activeCardId()),
   );
@@ -24,9 +22,26 @@ export const AnnotateOverlay: Component<AnnotateOverlayProps> = (props) => {
     <>
       <For each={props.store.annotations}>
         {(annotation) => (
+          <For each={annotation.highlights}>
+            {(highlight) => (
+              <div
+                class="rga-highlight"
+                data-react-grab-ignore-events="true"
+                style={{
+                  left: `${highlight.x}px`,
+                  top: `${highlight.y}px`,
+                  width: `${highlight.width}px`,
+                  height: `${highlight.height}px`,
+                }}
+              />
+            )}
+          </For>
+        )}
+      </For>
+      <For each={props.store.annotations}>
+        {(annotation) => (
           <Mark
             annotation={annotation}
-            version={version}
             isActive={props.store.activeCardId() === annotation.id}
             onActivate={() => props.store.setActiveCard(annotation.id)}
           />
@@ -36,7 +51,6 @@ export const AnnotateOverlay: Component<AnnotateOverlayProps> = (props) => {
         {(annotation) => (
           <MarkCard
             annotation={annotation()}
-            version={version}
             onSave={(comment) => props.onSaveCard(annotation().id, comment)}
             onDelete={() => props.onDeleteCard(annotation().id)}
             onClose={() => props.store.setActiveCard(null)}

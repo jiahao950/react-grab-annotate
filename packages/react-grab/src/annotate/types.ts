@@ -5,6 +5,23 @@ export interface AnnotateAnchor {
   mode: AnnotateAnchorMode;
   relativeX: number;
   relativeY: number;
+  /**
+   * Viewport position at creation time. The mark is a fixed overlay pinned
+   * here — it does NOT recompute from `element`, so it never vanishes when the
+   * anchored node unmounts (virtualized lists recycle their DOM on scroll) or
+   * scrolls out of view. The overlay is an independent layer, unaffected by the
+   * host page's scrolling.
+   */
+  x: number;
+  y: number;
+}
+
+/** A highlight box in viewport (client) coordinates, captured at creation. */
+export interface AnnotateHighlight {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface ComponentChainEntry {
@@ -38,6 +55,12 @@ export interface Annotation {
   selector: string;
   url: string;
   anchor: AnnotateAnchor;
+  /**
+   * Selection highlight box(es) in viewport coords, captured at creation. Drawn
+   * as a fixed overlay layer (never recomputed from the element) so it persists
+   * through scroll/virtualization, and reused as the screenshot highlight.
+   */
+  highlights: AnnotateHighlight[];
   screenshotFile: string | null;
   screenshotDataUrl: string | null;
 }

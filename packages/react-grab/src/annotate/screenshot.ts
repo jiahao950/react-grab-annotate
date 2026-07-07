@@ -1,19 +1,17 @@
-import { snapdom } from "@zumer/snapdom";
+import { snapdom, preCache } from "@zumer/snapdom";
 import {
   ANNOTATE_SCREENSHOT_FULL_MAX_DPR,
   ANNOTATE_SCREENSHOT_WEBP_QUALITY,
 } from "./constants.js";
 import { logRecoverableError } from "../utils/log-recoverable-error.js";
 
-// Never serialize our own overlay hosts (marks/cards) or react-grab's overlay
-// into a capture, even when the chosen container is an ancestor of them.
-const OVERLAY_EXCLUDE_SELECTORS = ["[data-react-grab-annotate]", "[data-react-grab]"];
+// Our own overlay/shadow hosts — never serialized into a capture.
+const OVERLAY_SELECTORS = ["[data-react-grab-annotate]", "[data-react-grab]"];
 
-// Highlight styling. A translucent fill plus a solid border mirrors the
-// on-screen selection block so the reader immediately sees what was annotated.
-const HIGHLIGHT_FILL = "rgba(79, 70, 229, 0.18)";
+// A solid border frames the crop as the annotated selection.
 const HIGHLIGHT_STROKE = "rgba(79, 70, 229, 0.95)";
 const HIGHLIGHT_BORDER_PX = 2;
+const FALLBACK_BACKGROUND = "#ffffff";
 
 /** Highlight rectangle in viewport (client) coordinates. */
 export interface HighlightRect {
@@ -23,132 +21,135 @@ export interface HighlightRect {
   height: number;
 }
 
-const getFullCaptureDpr = (): number =>
+const getDpr = (): number =>
   Math.min(window.devicePixelRatio || 1, ANNOTATE_SCREENSHOT_FULL_MAX_DPR);
 
-// The highlight must render under the SAME transforms snapDOM applies to the
-// target — a fixed/centered modal, a translated dialog, etc. snapDOM re-lays-out
-// those out-of-flow subtrees at a different origin than the live viewport, so a
-// highlight drawn at live coordinates would land in the wrong place. Injecting
-// it into the target's containing block (the ancestor absolute positioning
-// resolves against) makes it move together with the target, wherever snapDOM
-// puts that subtree. Falls back to <body> for normal-flow content.
-const findContainingBlock = (element: Element): Element => {
-  for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
-    const style = getComputedStyle(ancestor);
+// The slow part of a capture is embedFonts (fetch + base64 every font file).
+// Warm snapDOM's font/resource cache once when entering annotate mode — while
+// the user is still selecting — so the capture at submit time is fast. Fonts
+// stay cached across captures (default "soft" cache keeps them). Fire-and-forget.
+export const warmScreenshotCache = (): void => {
+  try {
+    // 2.12.9 signature is positional: preCache(root, options).
+    void preCache(document.body, { embedFonts: true }).catch((error) =>
+      logRecoverableError("annotate:screenshot-precache", error),
+    );
+  } catch (error) {
+    logRecoverableError("annotate:screenshot-precache", error);
+  }
+};
+
+const isOverlayElement = (element: Element): boolean =>
+  element.hasAttribute("data-react-grab-annotate") || element.hasAttribute("data-react-grab");
+
+const isTransparentColor = (color: string): boolean =>
+  !color || color === "transparent" || color === "rgba(0, 0, 0, 0)";
+
+// Most app content has a transparent background (the page color lives on <body>
+// or <html>), so a cropped subtree capture comes out transparent. Resolve the
+// nearest opaque background up the ancestor chain and paint it behind the crop
+// so the screenshot always has a solid, on-brand backdrop.
+const resolveBackgroundColor = (element: Element): string => {
+  for (let el: Element | null = element; el; el = el.parentElement) {
+    const color = getComputedStyle(el).backgroundColor;
+    if (!isTransparentColor(color)) return color;
+  }
+  const bodyColor = getComputedStyle(document.body).backgroundColor;
+  if (!isTransparentColor(bodyColor)) return bodyColor;
+  const htmlColor = getComputedStyle(document.documentElement).backgroundColor;
+  return isTransparentColor(htmlColor) ? FALLBACK_BACKGROUND : htmlColor;
+};
+
+const unionRect = (rects: HighlightRect[]): HighlightRect | null => {
+  const valid = rects.filter((rect) => rect.width > 0 && rect.height > 0);
+  if (valid.length === 0) return null;
+  const left = Math.min(...valid.map((rect) => rect.x));
+  const top = Math.min(...valid.map((rect) => rect.y));
+  const right = Math.max(...valid.map((rect) => rect.x + rect.width));
+  const bottom = Math.max(...valid.map((rect) => rect.y + rect.height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+};
+
+// Smallest element that fully contains the region (viewport coords), skipping
+// our overlay and any scroll container. snapDOM cannot render a scroll container
+// (nor document.body containing a virtualized list) — it comes out blank — but a
+// small, non-scrolled subtree below it captures reliably.
+const findRegionContainer = (region: HighlightRect): Element => {
+  const centerX = region.x + region.width / 2;
+  const centerY = region.y + region.height / 2;
+  const candidates = document.elementsFromPoint(centerX, centerY);
+  let container: Element | null = candidates.find((el) => !isOverlayElement(el)) ?? null;
+  while (container && container !== document.body) {
+    const rect = container.getBoundingClientRect();
+    const style = getComputedStyle(container);
+    const isScroller =
+      container.scrollTop > 0 ||
+      ((style.overflowY === "auto" || style.overflowY === "scroll") &&
+        container.scrollHeight > container.clientHeight + 1);
     if (
-      style.position !== "static" ||
-      style.transform !== "none" ||
-      style.translate !== "none" ||
-      style.rotate !== "none" ||
-      style.scale !== "none" ||
-      style.perspective !== "none" ||
-      style.filter !== "none" ||
-      style.willChange.includes("transform")
+      !isScroller &&
+      rect.left <= region.x &&
+      rect.top <= region.y &&
+      rect.right >= region.x + region.width &&
+      rect.bottom >= region.y + region.height
     ) {
-      return ancestor;
+      return container;
     }
+    container = container.parentElement;
   }
   return document.body;
 };
 
-// Absolutely-positioned highlight overlays, positioned relative to the target's
-// containing block so they track it through snapDOM's re-layout. Returns a
-// cleanup that removes them.
-const injectHighlights = (highlights: HighlightRect[], anchor: Element): (() => void) => {
-  const containingBlock = findContainingBlock(anchor);
-  const blockRect = containingBlock.getBoundingClientRect();
-  const injected: HTMLElement[] = [];
-  for (const rect of highlights) {
-    if (rect.width <= 0 || rect.height <= 0) continue;
-    const overlay = document.createElement("div");
-    // Offset from the containing block's padding edge (getBoundingClientRect
-    // already accounts for page scroll; clientLeft/Top strip its border, and
-    // scrollLeft/Top account for its own scroll).
-    const left = rect.x - blockRect.left - containingBlock.clientLeft + containingBlock.scrollLeft;
-    const top = rect.y - blockRect.top - containingBlock.clientTop + containingBlock.scrollTop;
-    overlay.style.cssText = [
-      "position:absolute",
-      `left:${left}px`,
-      `top:${top}px`,
-      `width:${rect.width}px`,
-      `height:${rect.height}px`,
-      `background:${HIGHLIGHT_FILL}`,
-      `border:${HIGHLIGHT_BORDER_PX}px solid ${HIGHLIGHT_STROKE}`,
-      "box-sizing:border-box",
-      "border-radius:2px",
-      "pointer-events:none",
-      "margin:0",
-      "z-index:2147483000",
-    ].join(";");
-    containingBlock.appendChild(overlay);
-    injected.push(overlay);
-  }
-  return () => {
-    for (const overlay of injected) overlay.remove();
-  };
-};
-
-// Snapshot the whole page, then crop to the currently visible viewport. This is
-// "the page at the moment of annotation" — the element in its surrounding
-// context — rather than an isolated crop that carries no positional meaning.
-const captureViewportCanvas = async (): Promise<HTMLCanvasElement | null> => {
-  const dpr = getFullCaptureDpr();
-  const root = document.documentElement;
-  const sourceCanvas = await snapdom.toCanvas(root, {
-    dpr,
-    embedFonts: true,
-    exclude: OVERLAY_EXCLUDE_SELECTORS,
-  });
-
-  const rootRect = root.getBoundingClientRect();
-  // Canvas pixels per CSS pixel. When the page is scrolled, the root element's
-  // top-left sits at (rootRect.left, rootRect.top) in viewport coords (negative
-  // when scrolled), so the visible viewport maps to (-left, -top) in the canvas.
-  const scale = rootRect.width > 0 ? sourceCanvas.width / rootRect.width : dpr;
-  const sourceX = -rootRect.left * scale;
-  const sourceY = -rootRect.top * scale;
-  const sourceWidth = window.innerWidth * scale;
-  const sourceHeight = window.innerHeight * scale;
-
-  const viewportCanvas = document.createElement("canvas");
-  viewportCanvas.width = Math.max(1, Math.round(sourceWidth));
-  viewportCanvas.height = Math.max(1, Math.round(sourceHeight));
-  const context = viewportCanvas.getContext("2d");
-  if (!context) return null;
-  context.drawImage(
-    sourceCanvas,
-    sourceX,
-    sourceY,
-    sourceWidth,
-    sourceHeight,
-    0,
-    0,
-    viewportCanvas.width,
-    viewportCanvas.height,
-  );
-  return viewportCanvas;
-};
-
-// Full-viewport screenshot with the selection highlight(s) drawn on top,
-// encoded as WebP. Combined with the comment and source location this is the
-// most self-explanatory record: an agent can see exactly what was pointed at
-// and where it lives on the page. `anchor` is an element inside the selection;
-// its containing block anchors the highlight so it tracks modals/transforms.
+// Screenshot of the user's selection at annotation time, as WebP. Always
+// captures the smallest non-scroll element containing the selection and crops to
+// it (this is the only thing snapDOM renders reliably inside virtualized/custom
+// scroll containers), paints a solid background behind it so it's never
+// transparent, and frames it with a highlight border. Zero DOM injection.
 export const captureAnnotationScreenshot = async (
   highlights: HighlightRect[],
   anchor: Element,
 ): Promise<string | null> => {
-  let removeHighlights: (() => void) | null = null;
   try {
-    removeHighlights = injectHighlights(highlights, anchor);
-    const canvas = await captureViewportCanvas();
-    if (!canvas) return null;
-    return canvas.toDataURL("image/webp", ANNOTATE_SCREENSHOT_WEBP_QUALITY);
+    const region = unionRect(highlights) ?? anchor.getBoundingClientRect();
+    if (region.width < 1 || region.height < 1) return null;
+
+    const container = findRegionContainer(region);
+    const backgroundColor = resolveBackgroundColor(container);
+    const source = await snapdom.toCanvas(container, {
+      dpr: getDpr(),
+      embedFonts: true,
+      exclude: OVERLAY_SELECTORS,
+    });
+    const containerRect = container.getBoundingClientRect();
+    const scaleX = containerRect.width > 0 ? source.width / containerRect.width : getDpr();
+    const scaleY = containerRect.height > 0 ? source.height / containerRect.height : getDpr();
+
+    const crop = document.createElement("canvas");
+    crop.width = Math.max(1, Math.round(region.width * scaleX));
+    crop.height = Math.max(1, Math.round(region.height * scaleY));
+    const context = crop.getContext("2d");
+    if (!context) return null;
+
+    // Solid backdrop first, so transparent content never leaves a checkerboard.
+    context.fillStyle = backgroundColor;
+    context.fillRect(0, 0, crop.width, crop.height);
+    context.drawImage(
+      source,
+      (region.x - containerRect.left) * scaleX,
+      (region.y - containerRect.top) * scaleY,
+      region.width * scaleX,
+      region.height * scaleY,
+      0,
+      0,
+      crop.width,
+      crop.height,
+    );
+    context.lineWidth = HIGHLIGHT_BORDER_PX * scaleX;
+    context.strokeStyle = HIGHLIGHT_STROKE;
+    context.strokeRect(0, 0, crop.width, crop.height);
+    return crop.toDataURL("image/webp", ANNOTATE_SCREENSHOT_WEBP_QUALITY);
   } catch (error) {
     logRecoverableError("annotate:screenshot", error);
     return null;
-  } finally {
-    if (removeHighlights) removeHighlights();
   }
 };

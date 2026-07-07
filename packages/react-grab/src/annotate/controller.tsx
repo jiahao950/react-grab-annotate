@@ -5,11 +5,12 @@ import { logRecoverableError } from "../utils/log-recoverable-error.js";
 import { createAnnotateClient, type AnnotateClient, type SessionImage } from "./client.js";
 import { ANNOTATE_DEFAULT_SERVER_URL, ANNOTATE_TOAST_DURATION_MS } from "./constants.js";
 import { mountAnnotateOverlay } from "./mount.js";
-import { captureAnnotationScreenshot, type HighlightRect } from "./screenshot.js";
+import { captureAnnotationScreenshot, warmScreenshotCache } from "./screenshot.js";
 import { createAnnotateStore, type AnnotateStore } from "./store.js";
 import { AnnotateOverlay } from "./components/annotate-overlay.js";
 import type {
   AnnotateAnchor,
+  AnnotateHighlight,
   Annotation,
   AnnotationRecord,
   CommentSubmitInput,
@@ -113,6 +114,9 @@ export const createAnnotateController = (
   };
 
   const onEnter = (): void => {
+    // Warm snapDOM's font/resource cache while the user selects, so the
+    // screenshot at submit time isn't stalled fetching + embedding fonts.
+    warmScreenshotCache();
     api.activate();
   };
 
@@ -188,21 +192,11 @@ export const createAnnotateController = (
     elements: Element[],
     region: CommentSubmitInput["region"],
   ): Promise<void> => {
-    const number = store.annotations.find((entry) => entry.id === id)?.number;
-
-    // Reuse the on-screen selection block as the screenshot highlight: the drag
-    // rectangle for a box selection, the element's bounds for a single click.
-    // Coordinates are viewport-relative to match the full-viewport capture.
-    const highlights: HighlightRect[] = region
-      ? [
-          {
-            x: region.pageX - window.scrollX,
-            y: region.pageY - window.scrollY,
-            width: region.width,
-            height: region.height,
-          },
-        ]
-      : [element.getBoundingClientRect()];
+    const stored = store.annotations.find((entry) => entry.id === id);
+    const number = stored?.number;
+    // Reuse the highlight captured at creation (fixed viewport coords) as the
+    // screenshot highlight, so the shot matches the on-screen overlay exactly.
+    const highlights = stored?.highlights ?? [];
 
     const [source, componentChain, screenshotDataUrl] = await Promise.all([
       api.getSource(element).catch(() => null),
@@ -261,14 +255,32 @@ export const createAnnotateController = (
     const rect = element.getBoundingClientRect();
 
     // Anchor comes from core (click point for a click, release point for a box
-    // selection), stored relative to the element so the mark follows on scroll.
+    // selection). We pin the mark to the viewport position at creation (x/y) so
+    // it's an independent overlay layer — it never vanishes when the element
+    // unmounts (virtualized lists) or scrolls.
     const point = input.anchorPoint;
     const anchor: AnnotateAnchor = {
       element,
       mode: point?.mode ?? "click",
       relativeX: point && rect.width > 0 ? (point.x - rect.left) / rect.width : 0.5,
       relativeY: point && rect.height > 0 ? (point.y - rect.top) / rect.height : 0.5,
+      x: point?.x ?? rect.left + rect.width / 2,
+      y: point?.y ?? rect.top + rect.height / 2,
     };
+
+    // Selection highlight box(es) in viewport coords, captured now: the drag
+    // rectangle for a box selection, the element's bounds for a click. Rendered
+    // as a fixed overlay and reused as the screenshot highlight.
+    const highlights: AnnotateHighlight[] = input.region
+      ? [
+          {
+            x: input.region.pageX - window.scrollX,
+            y: input.region.pageY - window.scrollY,
+            width: input.region.width,
+            height: input.region.height,
+          },
+        ]
+      : [{ x: rect.left, y: rect.top, width: rect.width, height: rect.height }];
 
     const id = generateId("annotation");
     const annotation: Annotation = {
@@ -284,6 +296,7 @@ export const createAnnotateController = (
       selector: createElementSelector(element),
       url: window.location.href,
       anchor,
+      highlights,
       screenshotFile: null,
       screenshotDataUrl: null,
     };
