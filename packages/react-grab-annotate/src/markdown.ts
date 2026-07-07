@@ -58,7 +58,11 @@ const renderAnnotation = (annotation: AnnotationRecord): string => {
     lines.push(`- 页面: ${annotation.url}`);
   }
   if (annotation.screenshotFile) {
-    lines.push(`- 截图: ![#${annotation.number}](./${annotation.screenshotFile})`);
+    // The screenshot is a crop of exactly what the user selected. Say so, so the
+    // reader treats it as the target.
+    lines.push(
+      `- 截图（用户选中的部分）: ![#${annotation.number}](./${annotation.screenshotFile})`,
+    );
   }
   lines.push("");
   lines.push("**评论:**");
@@ -72,7 +76,10 @@ export const renderAnnotationsMarkdown = (annotations: AnnotationRecord[]): stri
   const header = [
     "# 标注",
     "",
-    `共 ${sorted.length} 条标注。每条包含源码位置、截图与评论，请据此修改项目代码。`,
+    `共 ${sorted.length} 条标注。每条对应用户在运行中的页面上**选中的一个 UI 元素/区域**——也就是用户希望你改动的地方。`,
+    "",
+    "每条包含:组件名与源码位置(`file:line`)、DOM 选择器、页面 URL、截图(就是用户选中的那块内容)，以及用户的修改说明(评论)。",
+    "请据此定位对应组件并按评论修改项目代码;截图用于确认你找到的正是用户圈中的元素。",
     "",
   ];
   const body = sorted.map(renderAnnotation).join("\n\n");

@@ -1,6 +1,6 @@
 {
   "name": "react-grab-annotate",
-  "version": "0.1.26",
+  "version": "0.1.38",
   "description": "Annotate a running React app in the browser (screenshot + source location + comment) and save it to disk for an AI coding agent to read.",
   "keywords": [
     "agent",
