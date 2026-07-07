@@ -1,8 +1,5 @@
 import { snapdom, preCache } from "@zumer/snapdom";
-import {
-  ANNOTATE_SCREENSHOT_FULL_MAX_DPR,
-  ANNOTATE_SCREENSHOT_WEBP_QUALITY,
-} from "./constants.js";
+import { ANNOTATE_SCREENSHOT_WEBP_QUALITY } from "./constants.js";
 import { logRecoverableError } from "../utils/log-recoverable-error.js";
 
 // Our own overlay/shadow hosts — never serialized into a capture.
@@ -21,8 +18,11 @@ export interface HighlightRect {
   height: number;
 }
 
-const getDpr = (): number =>
-  Math.min(window.devicePixelRatio || 1, ANNOTATE_SCREENSHOT_FULL_MAX_DPR);
+// The capture is a small crop of the selection, so render it crisp: at least 2x
+// (so text stays sharp when the image is viewed larger than 1:1) and at most 3x
+// (to bound the source canvas size). Not tied to the device's ratio, which can
+// be 1 on a plain display and leave the crop blurry.
+const getCaptureDpr = (): number => Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
 
 // The slow part of a capture is embedFonts (fetch + base64 every font file).
 // Warm snapDOM's font/resource cache once when entering annotate mode — while
@@ -116,13 +116,13 @@ export const captureAnnotationScreenshot = async (
     const container = findRegionContainer(region);
     const backgroundColor = resolveBackgroundColor(container);
     const source = await snapdom.toCanvas(container, {
-      dpr: getDpr(),
+      dpr: getCaptureDpr(),
       embedFonts: true,
       exclude: OVERLAY_SELECTORS,
     });
     const containerRect = container.getBoundingClientRect();
-    const scaleX = containerRect.width > 0 ? source.width / containerRect.width : getDpr();
-    const scaleY = containerRect.height > 0 ? source.height / containerRect.height : getDpr();
+    const scaleX = containerRect.width > 0 ? source.width / containerRect.width : getCaptureDpr();
+    const scaleY = containerRect.height > 0 ? source.height / containerRect.height : getCaptureDpr();
 
     const crop = document.createElement("canvas");
     crop.width = Math.max(1, Math.round(region.width * scaleX));
